@@ -169,25 +169,82 @@ export async function detectTrafficBlock(page) {
   return blocked ? url : null;
 }
 
-/** Dismiss Shopee's first-visit language picker if present. */
+/** True if login form fields are already on screen (gate can be ignored). */
+async function loginFormReady(page) {
+  return anyVisible(page, SELECTORS.loginUsername, 400);
+}
+
+/**
+ * Click a language button even when an SVG/overlay intercepts pointer events.
+ * Never throws — returns true on success.
+ */
+async function clickLanguageOption(page, selectors) {
+  for (const sel of selectors) {
+    const loc = page.locator(sel).first();
+    const visible = await loc.isVisible({ timeout: 400 }).catch(() => false);
+    if (!visible) continue;
+
+    // 1) Playwright force click (ignores actionability / overlays)
+    try {
+      await loc.click({ timeout: 800, force: true });
+      return true;
+    } catch {
+      // continue
+    }
+
+    // 2) DOM click via JS (bypasses hit-testing / SVG intercept)
+    try {
+      await loc.evaluate((el) => {
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        if (typeof el.click === "function") el.click();
+      });
+      return true;
+    } catch {
+      // continue
+    }
+  }
+  return false;
+}
+
+/**
+ * Dismiss Shopee's first-visit language picker if present.
+ * Prefer ไทย on .co.th. Never throws — login/buy flows must continue.
+ */
 export async function dismissLanguageGate(page, { log } = {}) {
   const write = log || ((...a) => console.log(...a));
-  const visible = await anyVisible(
-    page,
-    [...SELECTORS.languageThai, ...SELECTORS.languageEnglish],
-    2500
-  );
-  if (!visible) return false;
 
   try {
-    await clickFirst(page, SELECTORS.languageThai, { timeout: 2000 });
-    write("เลือกภาษา: ไทย");
-  } catch {
-    await clickFirst(page, SELECTORS.languageEnglish, { timeout: 2000 });
-    write("Selected language: English");
+    // Already past the gate (e.g. login form visible)
+    if (await loginFormReady(page)) {
+      return false;
+    }
+
+    const gateVisible = await anyVisible(
+      page,
+      [...SELECTORS.languageThai, ...SELECTORS.languageEnglish],
+      1500
+    );
+    if (!gateVisible) return false;
+
+    // Prefer Thai for shopee.co.th
+    if (await clickLanguageOption(page, SELECTORS.languageThai)) {
+      write("เลือกภาษา: ไทย");
+      await page.waitForTimeout(300);
+      return true;
+    }
+
+    if (await clickLanguageOption(page, SELECTORS.languageEnglish)) {
+      write("เลือกภาษา: English");
+      await page.waitForTimeout(300);
+      return true;
+    }
+
+    write("ข้ามหน้าเลือกภาษา — กดปุ่มไม่ได้ แต่จะไปต่อ");
+    return false;
+  } catch (err) {
+    write(`ข้ามหน้าเลือกภาษา (${err.message || err}) — ไปต่อ`);
+    return false;
   }
-  await page.waitForTimeout(500);
-  return true;
 }
 
 /**

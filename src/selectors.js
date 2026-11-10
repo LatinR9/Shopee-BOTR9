@@ -6,11 +6,13 @@
 export const SELECTORS = {
   // First-visit language gate (shopee.co.th)
   languageThai: [
+    'button.stardust-button:has-text("ไทย")',
     'button:has-text("ไทย")',
     'button:has-text("Thai")',
     '[class*="language"] button:has-text("ไทย")',
   ],
   languageEnglish: [
+    'button.stardust-button:has-text("English")',
     'button:has-text("English")',
     'button:has-text("EN")',
   ],

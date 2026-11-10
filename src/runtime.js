@@ -128,9 +128,25 @@ async function runLogin(page, config, logger, signal) {
   const base = config.baseUrl || "https://shopee.co.th";
   logger.info(`เปิด ${base}/buyer/login`);
   await page.goto(`${base}/buyer/login`, { waitUntil: "domcontentloaded" });
-  await dismissLanguageGate(page, { log: (...a) => logger.info(...a) });
+
+  // Language gate must never block login — errors are swallowed inside.
+  await dismissLanguageGate(page, {
+    log: (...a) => logger.info(...a),
+  }).catch((err) => {
+    logger.warn(`ข้ามหน้าเลือกภาษา: ${err.message || err}`);
+  });
+
+  // Return to login if the gate navigated away or left us elsewhere.
   if (!page.url().includes("/buyer/login")) {
     await page.goto(`${base}/buyer/login`, { waitUntil: "domcontentloaded" });
+  }
+
+  // If the gate is still covering the form, try once more then continue anyway.
+  const formVisible = await anyVisible(page, SELECTORS.loginUsername, 800);
+  if (!formVisible) {
+    await dismissLanguageGate(page, {
+      log: (...a) => logger.info(...a),
+    }).catch(() => {});
   }
 
   if (config.username && config.password) {
