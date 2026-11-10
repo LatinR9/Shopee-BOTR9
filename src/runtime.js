@@ -1,28 +1,34 @@
 /**
  * Shared runner for CLI + Electron GUI.
+ * Uses one shared browser window for login / dry-run / start.
  */
 import path from "node:path";
-import { launchBrowser, screenshot, configurePlaywrightBrowsersPath } from "./browser.js";
+import { screenshot } from "./browser.js";
 import { runFlashSale, dismissLanguageGate } from "./bot.js";
 import { SELECTORS, anyVisible } from "./selectors.js";
 import { settingsToConfig } from "./settings.js";
 import { createLogger } from "./logger.js";
+import {
+  getSharedBrowser,
+  persistSharedSession,
+  waitOutTrafficBlock,
+  hasStrongSessionCookies,
+  SESSION_COOKIE_NAMES,
+} from "./shared-browser.js";
+import { findSessionCookie } from "./session.js";
 
-/** How long to keep the login browser open for manual login. */
-const LOGIN_WAIT_MS = 15 * 60 * 1000; // 15 minutes
+/** How long to keep waiting for manual login. */
+const LOGIN_WAIT_MS = 15 * 60 * 1000;
 const LOGIN_STATUS_EVERY_MS = 30_000;
-
-/** Shopee session cookies that indicate a real logged-in buyer. */
-const LOGIN_COOKIE_NAMES = ["SPC_EC", "SPC_ST", "SPC_U_ID", "SPC_SI"];
 
 /**
  * @param {object} options
- * @param {object} options.settings - UI/settings.json fields
+ * @param {object} options.settings
  * @param {'login'|'dry-run'|'start'} options.mode
  * @param {(level:string, message:string)=>void} [options.onLog]
  * @param {AbortSignal} [options.signal]
- * @param {string} [options.profileDir] - persistent Chromium profile
- * @param {string} [options.resourcesPath] - Electron resources (bundled browsers)
+ * @param {string} [options.profileDir]
+ * @param {string} [options.resourcesPath]
  * @param {boolean} [options.headless]
  */
 export async function runBotJob(options) {
@@ -35,8 +41,6 @@ export async function runBotJob(options) {
     resourcesPath,
     headless = false,
   } = options;
-
-  configurePlaywrightBrowsersPath(resourcesPath);
 
   const logger = createLogger((level, message) => {
     if (onLog) onLog(level, message);
@@ -69,37 +73,19 @@ export async function runBotJob(options) {
         : "เริ่ม Flash Sale…"
   );
 
-  const { context, page } = await launchBrowser(config);
-  let result = { ok: false };
+  const { context, page } = await getSharedBrowser({
+    profileDir: config.userDataDir,
+    resourcesPath,
+    headless,
+    onLog,
+  });
 
-  try {
-    if (mode === "login") {
-      result = await runLogin(context, page, config, logger, signal);
-    } else {
-      result = await runFlashSale(page, config, { logger, signal });
-    }
-  } finally {
-    // Keep headed browser open briefly after purchase so user can finish OTP/payment
-    const keepOpen =
-      !headless &&
-      mode === "start" &&
-      result?.ok &&
-      !config.autoPlaceOrder;
-
-    if (keepOpen) {
-      logger.info("เปิดเบราว์เซอร์ค้างไว้ 60 วินาที ให้คุณชำระเงิน/OTP ได้ — หรือกดหยุด");
-      try {
-        await waitAbortable(60_000, signal);
-      } catch {
-        // stopped
-      }
-    }
-
-    // Login mode already waited until success / timeout / user closed the window.
-    await context.close().catch(() => {});
+  if (mode === "login") {
+    return runLogin(context, page, config, logger, signal);
   }
 
-  return result;
+  // Keep the shared window open after dry-run / start (warm page for the sale).
+  return runFlashSale(page, config, { logger, signal });
 }
 
 async function waitAbortable(ms, signal) {
@@ -125,46 +111,30 @@ function sleep(ms, signal) {
 }
 
 function isLoginUrl(url) {
-  try {
-    const u = String(url || "");
-    return u.includes("/buyer/login") || u.includes("/buyer/signup");
-  } catch {
-    return false;
-  }
-}
-
-function isTransientAuthUrl(url) {
   const u = String(url || "");
-  return (
-    u.includes("/verify/") ||
-    u.includes("captcha") ||
-    u.includes("/buyer/login") ||
-    u.includes("/buyer/signup")
-  );
+  return u.includes("/buyer/login") || u.includes("/buyer/signup");
 }
 
-/**
- * Positive login evidence — not merely "left /buyer/login"
- * (language-gate / home redirects caused false positives before).
- */
 async function detectLoggedIn(context, page) {
-  // 1) Session cookies
+  // Prefer strong session cookies (QR login can briefly show UI without them).
   try {
     const cookies = await context.cookies();
-    const hit = cookies.find(
-      (c) =>
-        LOGIN_COOKIE_NAMES.includes(c.name) &&
-        c.value &&
-        c.value.length > 5
-    );
-    if (hit) return { ok: true, via: `cookie:${hit.name}` };
+    if (hasStrongSessionCookies(cookies) && !isLoginUrl(page.url())) {
+      const hit = findSessionCookie(cookies, ["SPC_EC", "SPC_ST"]);
+      return { ok: true, via: `cookie:${hit?.name || "session"}` };
+    }
+    // Weaker cookies alone are not enough while still on login/qr.
+    const weak = findSessionCookie(cookies, SESSION_COOKIE_NAMES);
+    if (weak && !isLoginUrl(page.url())) {
+      // Allow after leaving login URL, but require a second consecutive hit.
+      return { ok: true, via: `cookie:${weak.name}`, weak: true };
+    }
   } catch {
-    // context may be closing
+    // ignore
   }
 
-  // 2) Account UI while not on login/verify
   const url = page.url();
-  if (!isTransientAuthUrl(url)) {
+  if (!isLoginUrl(url) && !String(url).includes("/verify/")) {
     const avatar = await anyVisible(
       page,
       [
@@ -172,34 +142,24 @@ async function detectLoggedIn(context, page) {
         'a[href*="/user/"]',
         ".navbar-username",
         '[class*="navbar__username"]',
-        'img[alt*="avatar" i]',
       ],
       600
     );
-    if (avatar) return { ok: true, via: "account_ui" };
+    if (avatar) return { ok: true, via: "account_ui", weak: true };
   }
-
   return { ok: false };
 }
 
-async function browserWasClosed(context, page) {
+async function browserWasClosed(page) {
   try {
-    if (!context || context.browser()?.isConnected() === false) return true;
-  } catch {
-    // launchPersistentContext has no browser() sometimes — check pages
-  }
-  try {
-    if (page.isClosed()) return true;
-    if (context.pages().length === 0) return true;
+    return page.isClosed();
   } catch {
     return true;
   }
-  return false;
 }
 
 /**
- * Manual login only (no credential auto-fill / auto-submit).
- * Keeps the browser open until real login, user closes window, Stop, or long timeout.
+ * Manual login only. Leaves the shared browser open on success.
  */
 async function runLogin(context, page, config, logger, signal) {
   const base = config.baseUrl || "https://shopee.co.th";
@@ -212,56 +172,76 @@ async function runLogin(context, page, config, logger, signal) {
     logger.warn(`ข้ามหน้าเลือกภาษา: ${err.message || err}`);
   });
 
-  // Language gate often navigates to the homepage — return to login and settle.
   if (!isLoginUrl(page.url())) {
     await page.goto(`${base}/buyer/login`, { waitUntil: "domcontentloaded" });
   }
   await page.waitForTimeout(800);
 
-  // Second chance on the gate if it still covers the form — never autofill.
   if (!(await anyVisible(page, SELECTORS.loginUsername, 800))) {
+    // QR tab may hide the password fields — that's OK for manual login.
     await dismissLanguageGate(page, {
       log: (...a) => logger.info(...a),
     }).catch(() => {});
-    if (!isLoginUrl(page.url())) {
-      await page.goto(`${base}/buyer/login`, { waitUntil: "domcontentloaded" });
-    }
   }
 
   logger.info("กรุณาเข้าสู่ระบบด้วยมือในหน้าต่างเบราว์เซอร์ (โปรแกรมจะไม่กรอกให้)");
   logger.info(
-    `รอจนล็อกอินสำเร็จหรือคุณปิดหน้าต่าง — สูงสุด ${Math.round(LOGIN_WAIT_MS / 60000)} นาที (กดหยุดได้)`
+    `รอจนล็อกอินสำเร็จ — สูงสุด ${Math.round(LOGIN_WAIT_MS / 60000)} นาที (กดหยุดได้) · หน้าต่างจะยังเปิดอยู่หลังล็อกอิน`
   );
 
   const deadline = Date.now() + LOGIN_WAIT_MS;
   let nextStatusAt = Date.now() + LOGIN_STATUS_EVERY_MS;
   let consecutiveOk = 0;
+  let needStrong = false;
 
   while (Date.now() < deadline) {
-    if (signal?.aborted) {
-      throw new DOMException("Aborted", "AbortError");
-    }
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
-    if (await browserWasClosed(context, page)) {
+    if (await browserWasClosed(page)) {
       logger.warn("ปิดหน้าต่างเบราว์เซอร์แล้ว — ยังไม่บันทึกเซสชัน");
       return { ok: false, reason: "browser_closed" };
     }
 
-    // Ignore brief navigations away from login (language gate / redirects).
-    // Require stable positive evidence across a couple of checks.
+    // CAPTCHA / verify during login — wait in-window
+    const traffic = await waitOutTrafficBlock(page, {
+      onLog: (level, message) => logger[level]?.(message) || logger.info(message),
+      timeoutMs: 5 * 60 * 1000,
+      signal,
+    });
+    if (!traffic.ok && traffic.reason === "traffic_timeout") {
+      // keep waiting in the outer loop
+    }
+
     const detected = await detectLoggedIn(context, page);
     if (detected.ok && !isLoginUrl(page.url())) {
       consecutiveOk += 1;
+      if (detected.weak) needStrong = true;
     } else {
       consecutiveOk = 0;
     }
 
-    if (consecutiveOk >= 2) {
-      // Persistent profile already stores cookies; screenshot for confirmation.
-      logger.info("ล็อกอินสำเร็จ");
-      logger.info("บันทึกเซสชันในโปรไฟล์เบราว์เซอร์แล้ว — พร้อมใช้กด Flash Sale");
-      await screenshot(page, "login-ok");
-      return { ok: true, via: detected.via };
+    // Require 3 stable hits; if only weak evidence, wait for strong cookies too.
+    if (consecutiveOk >= 3) {
+      const cookies = await context.cookies().catch(() => []);
+      if (needStrong && !hasStrongSessionCookies(cookies) && consecutiveOk < 6) {
+        if (Date.now() >= nextStatusAt) {
+          logger.info("เห็นว่าล็อกอินแล้ว — รอคุกกี้เซสชันให้ครบ (เช่น หลังสแกน QR)…");
+          nextStatusAt = Date.now() + LOGIN_STATUS_EVERY_MS;
+        }
+      } else {
+        await page.waitForTimeout(800);
+        const saved = await persistSharedSession((level, message) =>
+          logger[level]?.(message) || logger.info(message)
+        );
+        logger.info("ล็อกอินสำเร็จ");
+        if (saved?.ok) {
+          logger.info("บันทึกเซสชันแล้ว — หน้าต่างเบราว์เซอร์ยังเปิดอยู่ พร้อมสแกน/กด Flash Sale");
+        } else {
+          logger.warn("ล็อกอินสำเร็จแต่บันทึกไฟล์เซสชันไม่สมบูรณ์ — โปรไฟล์ Chromium ยังถูกใช้ต่อ");
+        }
+        await screenshot(page, "login-ok");
+        return { ok: true, via: detected.via, browserKeptOpen: true };
+      }
     }
 
     if (Date.now() >= nextStatusAt) {
@@ -281,5 +261,5 @@ async function runLogin(context, page, config, logger, signal) {
 
   logger.warn("หมดเวลารอล็อกอิน — ลองกดเข้าสู่ระบบอีกครั้ง");
   await screenshot(page, "login-timeout");
-  return { ok: false, reason: "login_timeout" };
+  return { ok: false, reason: "login_timeout", browserKeptOpen: true };
 }
