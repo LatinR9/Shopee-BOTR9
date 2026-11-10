@@ -1,6 +1,6 @@
 {
   "name": "shopee-botr9",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Shopee Flash Sale desktop bot (Thai GUI + Playwright)",
   "main": "electron/main.cjs",
   "author": "Shopee-BOTR9",

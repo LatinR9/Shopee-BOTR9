@@ -6,8 +6,11 @@
  *    page's own item API response
  * 3) Playwright DOM fallback: read the option buttons on the page
  */
-import { launchBrowser, configurePlaywrightBrowsersPath } from "./browser.js";
-import { dismissLanguageGate, detectTrafficBlock } from "./bot.js";
+import { dismissLanguageGate } from "./bot.js";
+import {
+  getSharedBrowser,
+  waitOutTrafficBlock,
+} from "./shared-browser.js";
 
 const PRICE_DIVISOR = 100000;
 const ITEM_API_RE = /\/api\/v4\/(pdp\/get_pc|pdp\/get|item\/get)\b/;
@@ -170,7 +173,11 @@ async function scanDom(page) {
 }
 
 /** Open the product page and capture its item JSON, falling back to the DOM. */
-export async function scanVariantsWithPage(page, productUrl, { log = () => {}, timeoutMs = 20000 } = {}) {
+export async function scanVariantsWithPage(
+  page,
+  productUrl,
+  { log = () => {}, onLog, timeoutMs = 25000, signal } = {}
+) {
   let captured = null;
   const onResponse = async (res) => {
     if (captured || !ITEM_API_RE.test(res.url())) return;
@@ -190,11 +197,32 @@ export async function scanVariantsWithPage(page, productUrl, { log = () => {}, t
       await page.goto(productUrl, { waitUntil: "domcontentloaded" });
     }
 
+    const traffic = await waitOutTrafficBlock(page, {
+      onLog: onLog || ((level, message) => log(message)),
+      timeoutMs: 10 * 60 * 1000,
+      signal,
+    });
+    if (!traffic.ok) {
+      return { ok: false, reason: "traffic_timeout" };
+    }
+    // After captcha, reload product once so APIs fire again.
+    if (traffic.waited) {
+      await page.goto(productUrl, { waitUntil: "domcontentloaded" });
+      await dismissLanguageGate(page, { log }).catch(() => {});
+    }
+
     const deadline = Date.now() + timeoutMs;
     while (!captured && Date.now() < deadline) {
-      if (await detectTrafficBlock(page)) {
-        return { ok: false, reason: "traffic_block" };
+      const again = await waitOutTrafficBlock(page, {
+        onLog: onLog || ((level, message) => log(message)),
+        timeoutMs: 10 * 60 * 1000,
+        signal,
+      });
+      if (!again.ok) return { ok: false, reason: "traffic_timeout" };
+      if (again.waited) {
+        await page.goto(productUrl, { waitUntil: "domcontentloaded" });
       }
+
       await page.waitForTimeout(300);
       if (Date.now() > deadline - timeoutMs / 2) {
         const dom = await scanDom(page).catch(() => null);
@@ -204,7 +232,6 @@ export async function scanVariantsWithPage(page, productUrl, { log = () => {}, t
             const labels = idx.map((oi, ti) => tiers[ti].options[oi]);
             return { key: modelKey(labels), modelId: "", labels, price: null, stock: null };
           });
-          // Give the API response one last chance — it carries price/stock.
           await page.waitForTimeout(1000);
           if (captured) break;
           log("อ่านตัวเลือกจากหน้าเว็บ (ไม่มีราคา/สต็อก)");
@@ -229,7 +256,14 @@ export async function scanVariantsWithPage(page, productUrl, { log = () => {}, t
  * Full scan job used by the GUI.
  * @returns {Promise<{ok:boolean, reason?:string, source?:string, url?:string, itemName?:string, tiers?:Array, models?:Array, scannedAt?:string}>}
  */
-export async function scanVariants({ productUrl, baseUrl, profileDir, resourcesPath, onLog }) {
+export async function scanVariants({
+  productUrl,
+  baseUrl,
+  profileDir,
+  resourcesPath,
+  onLog,
+  signal,
+}) {
   const log = (msg) => (onLog ? onLog("info", msg) : console.log(msg));
   const stampResult = (r) => ({ ...r, url: productUrl, scannedAt: new Date().toISOString() });
 
@@ -239,14 +273,18 @@ export async function scanVariants({ productUrl, baseUrl, profileDir, resourcesP
     log("กำลังสแกนตัวเลือกสินค้า…");
     const fast = await fetchVariantsHttp(productUrl, { baseUrl });
     if (fast) return stampResult({ ok: true, source: "http", ...fast });
-    log("Shopee ไม่ตอบแบบเร็ว — เปิดเบราว์เซอร์เพื่ออ่านตัวเลือก (ปิดเองเมื่อเสร็จ)");
+    log("Shopee ไม่ตอบแบบเร็ว — ใช้หน้าต่างเบราว์เซอร์เดิมเพื่ออ่านตัวเลือก");
   }
 
-  configurePlaywrightBrowsersPath(resourcesPath);
-  const { context, page } = await launchBrowser({ userDataDir: profileDir, headless: false });
-  try {
-    return stampResult(await scanVariantsWithPage(page, productUrl, { log }));
-  } finally {
-    await context.close().catch(() => {});
-  }
+  const { page } = await getSharedBrowser({
+    profileDir,
+    resourcesPath,
+    headless: false,
+    onLog,
+  });
+
+  // Keep the shared window open after scan (warm product page).
+  return stampResult(
+    await scanVariantsWithPage(page, productUrl, { log, onLog, signal })
+  );
 }

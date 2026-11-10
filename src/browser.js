@@ -41,6 +41,10 @@ export async function launchBrowser(config) {
     args: [
       "--disable-blink-features=AutomationControlled",
       "--no-sandbox",
+      // Keep background product windows firing at sale time
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
     ],
   });
 
