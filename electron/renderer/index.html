@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shopee Flash Sale Bot</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="hero">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">S</span>
+          <div>
+            <h1>Shopee Flash Sale Bot</h1>
+            <p class="tagline">กดซื้อ Flash Sale อัตโนมัติ — เปิดแล้วใช้ได้เลย</p>
+          </div>
+        </div>
+        <div id="statusPill" class="status idle">พร้อมใช้งาน</div>
+      </header>
+
+      <main class="panel">
+        <section class="form" aria-label="ตั้งค่า">
+          <label>
+            <span>ลิงก์สินค้า Shopee</span>
+            <input
+              id="productUrl"
+              type="url"
+              placeholder="https://shopee.co.th/..."
+              autocomplete="off"
+            />
+          </label>
+
+          <div class="row">
+            <label>
+              <span>เวลาเริ่ม Flash Sale</span>
+              <input id="saleStart" type="datetime-local" />
+            </label>
+            <label class="narrow">
+              <span>จำนวน</span>
+              <input id="quantity" type="number" min="1" max="99" value="1" />
+            </label>
+          </div>
+
+          <label>
+            <span>ตัวเลือกสินค้า (คั่นด้วยจุลภาค เช่น สีดำ,XL)</span>
+            <input id="variants" type="text" placeholder="เว้นว่างได้ถ้าไม่มี" />
+          </label>
+
+          <details class="advanced">
+            <summary>ตั้งค่าเพิ่มเติม</summary>
+            <div class="row">
+              <label>
+                <span>กดล่วงหน้า (มิลลิวินาที)</span>
+                <input id="preclickMs" type="number" min="0" step="50" value="500" />
+              </label>
+              <label>
+                <span>หมดเวลากดซื้อ (ms)</span>
+                <input id="clickTimeoutMs" type="number" min="1000" step="500" value="15000" />
+              </label>
+            </div>
+            <label class="check">
+              <input id="autoPlaceOrder" type="checkbox" />
+              <span>กดสั่งซื้ออัตโนมัติ (ระวัง — เปิดเมื่อมั่นใจแล้วเท่านั้น)</span>
+            </label>
+            <div class="row">
+              <label>
+                <span>เบอร์/อีเมล (ไม่บังคับ)</span>
+                <input id="username" type="text" autocomplete="username" />
+              </label>
+              <label>
+                <span>รหัสผ่าน (ไม่บังคับ — เก็บในเครื่องคุณเท่านั้น)</span>
+                <input id="password" type="password" autocomplete="current-password" />
+              </label>
+            </div>
+          </details>
+        </section>
+
+        <section class="actions" aria-label="ปุ่มควบคุม">
+          <button id="btnLogin" class="btn secondary" type="button">เข้าสู่ระบบ</button>
+          <button id="btnDryRun" class="btn secondary" type="button">ทดสอบ</button>
+          <button id="btnStart" class="btn primary" type="button">เริ่มกด Flash Sale</button>
+          <button id="btnStop" class="btn danger" type="button" disabled>หยุด</button>
+          <button id="btnSave" class="btn ghost" type="button">บันทึกค่า</button>
+        </section>
+
+        <section class="log-wrap" aria-label="บันทึกการทำงาน">
+          <div class="log-head">
+            <h2>บันทึกการทำงาน</h2>
+            <button id="btnClearLog" class="btn ghost tiny" type="button">ล้าง</button>
+          </div>
+          <pre id="log" class="log" aria-live="polite"></pre>
+        </section>
+      </main>
+
+      <footer>
+        ค่าที่ตั้งไว้ถูกบันทึกในเครื่องคุณอัตโนมัติ · Shopee อาจมี CAPTCHA / กันบอท
+      </footer>
+    </div>
+    <script src="renderer.js"></script>
+  </body>
+</html>

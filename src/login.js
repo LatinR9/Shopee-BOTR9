@@ -1,74 +1,34 @@
 /**
- * Interactive / credential login helper.
- * Saves session into SHOPEE_USER_DATA_DIR (default .auth/user-data).
- *
- * Usage:
- *   cp .env.example .env   # set SHOPEE_USERNAME / SHOPEE_PASSWORD if desired
- *   npm run login
- *
- * If CAPTCHA or OTP appears, complete it manually in the opened browser window.
+ * CLI login helper. Prefer the GUI "เข้าสู่ระบบ" button.
  */
+import path from "node:path";
+import os from "node:os";
 import { loadConfig } from "./config.js";
-import { launchBrowser, screenshot } from "./browser.js";
-import { SELECTORS, clickFirst, anyVisible } from "./selectors.js";
-import { dismissLanguageGate } from "./bot.js";
-
-async function fillFirst(page, selectors, value) {
-  for (const sel of selectors) {
-    const loc = page.locator(sel).first();
-    if (await loc.isVisible({ timeout: 800 }).catch(() => false)) {
-      await loc.fill(value);
-      return sel;
-    }
-  }
-  throw new Error(`Could not find input for: ${selectors.join(" | ")}`);
-}
+import { runBotJob } from "./runtime.js";
+import { loadSettings, defaultSettingsPath } from "./settings.js";
 
 async function main() {
-  const config = loadConfig();
-  const { context, page } = await launchBrowser({ ...config, headless: false });
+  const fileSettings = loadSettings(defaultSettingsPath());
+  const envConfig = loadConfig();
+  const settings = {
+    ...fileSettings,
+    username: envConfig.username || fileSettings.username,
+    password: envConfig.password || fileSettings.password,
+    baseUrl: envConfig.baseUrl || fileSettings.baseUrl,
+  };
 
-  console.log(`[login] Opening ${config.baseUrl}/buyer/login`);
-  await page.goto(`${config.baseUrl}/buyer/login`, { waitUntil: "domcontentloaded" });
-  await dismissLanguageGate(page);
-  if (!page.url().includes("/buyer/login")) {
-    await page.goto(`${config.baseUrl}/buyer/login`, { waitUntil: "domcontentloaded" });
-  }
+  const profileDir =
+    process.env.SHOPEE_USER_DATA_DIR ||
+    path.join(os.homedir(), ".shopee-botr9", "browser-profile");
 
-  if (config.username && config.password) {
-    try {
-      await fillFirst(page, SELECTORS.loginUsername, config.username);
-      await fillFirst(page, SELECTORS.loginPassword, config.password);
-      await clickFirst(page, SELECTORS.loginSubmit, { timeout: 5000 });
-      console.log("[login] Submitted credentials — complete CAPTCHA/OTP in the browser if asked.");
-    } catch (err) {
-      console.warn(`[login] Auto-fill failed (${err.message}). Log in manually in the window.`);
-    }
-  } else {
-    console.log("[login] No SHOPEE_USERNAME/PASSWORD in .env — please log in manually in the browser.");
-  }
+  const result = await runBotJob({
+    settings,
+    mode: "login",
+    profileDir,
+    headless: false,
+  });
 
-  console.log("[login] Waiting up to 3 minutes for a logged-in session…");
-  const ok = await page
-    .waitForFunction(
-      () => {
-        const href = location.href;
-        return !href.includes("/buyer/login") && !href.includes("/buyer/signup");
-      },
-      { timeout: 180_000 }
-    )
-    .then(() => true)
-    .catch(() => false);
-
-  if (ok || (await anyVisible(page, ['a[href*="/user"]', ".navbar-username"], 3000))) {
-    console.log("[login] Session looks ready. Profile saved under:", config.userDataDir);
-    await screenshot(page, "login-ok");
-  } else {
-    console.warn("[login] Timed out. Run again after logging in, or keep the browser open longer.");
-    await screenshot(page, "login-timeout");
-  }
-
-  await context.close();
+  if (!result.ok) process.exitCode = 2;
 }
 
 main().catch((err) => {

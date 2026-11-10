@@ -1,0 +1,66 @@
+name: Build Windows Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Upload artifacts to a GitHub Release for this tag/ref"
+        required: false
+        default: "true"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure Playwright Chromium is bundled
+        run: npm run prepare:browsers
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}\ms-playwright
+
+      - name: Build Windows installer + portable
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: List release artifacts
+        shell: bash
+        run: ls -lah release || dir release
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-builds
+          path: |
+            release/*.exe
+            release/latest.yml
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('win-build-{0}', github.run_number) }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('Windows build #{0}', github.run_number) }}
+          draft: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          generate_release_notes: true
+          files: |
+            release/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

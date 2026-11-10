@@ -9,6 +9,8 @@ sessions/
 *.session.json
 user-data/
 dist/
+release/
+ms-playwright/
 coverage/
 .DS_Store
 *.log
@@ -20,3 +22,6 @@ artifacts/
 *.pem
 cookies.json
 auth.json
+*.exe
+*.blockmap
+.cache/
