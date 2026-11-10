@@ -1,12 +1,16 @@
 {
   "name": "shopee-botr9",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Shopee Flash Sale desktop bot (Thai GUI + Playwright)",
   "main": "electron/main.cjs",
   "author": "Shopee-BOTR9",
   "license": "MIT",
   "private": false,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LatinR9/Shopee-BOTR9.git"
+  },
   "scripts": {
     "postinstall": "node scripts/prepare-browsers.cjs",
     "app": "electron .",
@@ -30,6 +34,7 @@
   ],
   "dependencies": {
     "dotenv": "^16.4.7",
+    "electron-updater": "^6.8.11",
     "playwright": "^1.50.1"
   },
   "devDependencies": {
@@ -64,6 +69,14 @@
         ]
       }
     ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "LatinR9",
+        "repo": "Shopee-BOTR9",
+        "releaseType": "release"
+      }
+    ],
     "win": {
       "target": [
         {
@@ -79,7 +92,7 @@
           ]
         }
       ],
-      "artifactName": "ShopeeFlashSaleBot-${version}-${os}-${arch}.${ext}"
+      "artifactName": "ShopeeFlashSaleBot-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": true,
@@ -88,7 +101,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Shopee Flash Sale Bot",
-      "uninstallDisplayName": "Shopee Flash Sale Bot"
+      "uninstallDisplayName": "Shopee Flash Sale Bot",
+      "artifactName": "ShopeeFlashSaleBot-Setup-${version}.${ext}"
     },
     "portable": {
       "artifactName": "ShopeeFlashSaleBot-${version}-portable.${ext}"

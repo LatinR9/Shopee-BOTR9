@@ -286,6 +286,25 @@ footer {
   font-size: 0.85rem;
 }
 
+.update-banner {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.92rem;
+  box-shadow: var(--shadow);
+}
+
+.update-banner[hidden] {
+  display: none !important;
+}
+
 @media (max-width: 720px) {
   .row {
     grid-template-columns: 1fr;

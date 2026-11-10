@@ -2,14 +2,15 @@ const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
+const { setupAutoUpdater } = require("./updater.cjs");
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
 /** @type {AbortController | null} */
 let activeAbort = null;
 let jobRunning = false;
-
-const isDev = !app.isPackaged;
+/** @type {{ enabled: boolean, check?: Function, download?: Function, install?: Function, reason?: string }} */
+let updaterApi = { enabled: false };
 
 function settingsPath() {
   return path.join(app.getPath("userData"), "settings.json");
@@ -123,6 +124,29 @@ ipcMain.handle("job:stop", () => {
   return { ok: false, reason: "idle" };
 });
 
+ipcMain.handle("update:check", async () => {
+  if (!updaterApi.enabled || !updaterApi.check) {
+    return { ok: false, reason: updaterApi.reason || "disabled" };
+  }
+  await updaterApi.check();
+  return { ok: true };
+});
+
+ipcMain.handle("update:download", async () => {
+  if (!updaterApi.enabled || !updaterApi.download) {
+    return { ok: false, reason: updaterApi.reason || "disabled" };
+  }
+  return updaterApi.download();
+});
+
+ipcMain.handle("update:install", () => {
+  if (!updaterApi.enabled || !updaterApi.install) {
+    return { ok: false, reason: updaterApi.reason || "disabled" };
+  }
+  updaterApi.install();
+  return { ok: true };
+});
+
 ipcMain.handle("job:start", async (_event, payload) => {
   if (jobRunning) {
     return { ok: false, reason: "busy" };
@@ -184,6 +208,20 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+
+  updaterApi = setupAutoUpdater(() => mainWindow);
+  if (!updaterApi.enabled && updaterApi.reason === "portable") {
+    // Portable cannot self-update — tell the UI once quietly
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("update:status", {
+          state: "skipped",
+          message:
+            "เวอร์ชันพกพา (portable) อัปเดตเองไม่ได้ — ใช้ตัวติดตั้ง หรือดาวน์โหลดใหม่จาก Releases",
+        });
+      }
+    }, 3000);
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

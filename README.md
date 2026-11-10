@@ -13,35 +13,33 @@
 
 ### 1) ดาวน์โหลด
 
-ไปที่หน้า **Releases** ของโปรเจกต์นี้:
+ไปที่หน้า **Releases**:
 
 **https://github.com/LatinR9/Shopee-BOTR9/releases**
 
-เลือกไฟล์อย่างใดอย่างหนึ่ง:
-
 | ไฟล์ | วิธีใช้ |
 |------|---------|
-| `ShopeeFlashSaleBot-*-portable.exe` | **แนะนำ** — ดับเบิลคลิกเปิดได้เลย ไม่ต้องติดตั้ง |
-| `ShopeeFlashSaleBot-*-win-x64.exe` | ตัวติดตั้ง (สร้างไอคอนบนเดสก์ท็อป) |
+| `ShopeeFlashSaleBot-Setup-*.exe` | **แนะนำ** — ตัวติดตั้ง (รองรับอัปเดตอัตโนมัติในเครื่อง) |
+| `ShopeeFlashSaleBot-*-portable.exe` | ไฟล์พกพา ดับเบิลคลิกได้เลย แต่**อัปเดตเองไม่ได้** ต้องดาวน์โหลดใหม่ |
 
-ถ้ายังไม่มี Release ให้ดูแท็บ **Actions → Build Windows Release** แล้วดาวน์โหลด Artifact `windows-builds`  
-หรือรอผู้ดูแลสร้างแท็ก `v1.1.0` เพื่อเผยแพร่
+ถ้า Windows ขึ้นคำเตือน SmartScreen กด **More info → Run anyway**  
+(โปรแกรมยัง**ไม่ได้เซ็นชื่อดิจิทัล / code signing**)
 
-### 2) เปิดโปรแกรม
+### 2) อัปเดตอัตโนมัติ (ตัวติดตั้งเท่านั้น)
 
-1. ดับเบิลคลิกไฟล์ `.exe`
-2. ถ้า Windows ขึ้นคำเตือน SmartScreen กด **More info → Run anyway** (เพราะยังไม่ได้ซื้อรหัสเซ็นชื่อ)
-3. หน้าต่างโปรแกรมจะเปิดขึ้น
+- เมื่อเปิดโปรแกรม ระบบจะตรวจเวอร์ชันใหม่จาก GitHub Releases
+- ถ้ามีอัปเดต จะมีแถบแจ้งเตือนภาษาไทย → กดดาวน์โหลด → รีสตาร์ทเพื่อติดตั้ง
+- **เวอร์ชัน portable อัปเดตเองไม่ได้** — ใช้ตัว Setup หรือดาวน์โหลดไฟล์ใหม่จาก Releases
+- เพราะยังไม่เซ็นชื่อดิจิทัล Windows อาจเตือน SmartScreen ทุกครั้งที่อัปเดต/ติดตั้ง
 
 ### 3) ใช้งาน
 
-1. กด **เข้าสู่ระบบ** → ล็อกอิน Shopee ในเบราว์เซอร์ที่เปิดขึ้น (ทำ CAPTCHA/OTP เองได้)
+1. กด **เข้าสู่ระบบ** → ล็อกอิน Shopee ในเบราว์เซอร์ (CAPTCHA/OTP ทำมือได้)
 2. วาง **ลิงก์สินค้า** และตั้ง **เวลาเริ่ม Flash Sale**
-3. (ถ้าต้องการ) กด **ทดสอบ** เพื่อเปิดหน้าสินค้าโดยไม่กดซื้อ
-4. กด **เริ่มกด Flash Sale**
-5. กด **หยุด** ได้ทุกเมื่อ
+3. (ถ้าต้องการ) กด **ทดสอบ**
+4. กด **เริ่มกด Flash Sale** / **หยุด** ได้ทุกเมื่อ
 
-ค่าที่กรอกจะถูก**บันทึกในเครื่องคุณอัตโนมัติ** ไม่ต้องแก้ไฟล์คอนฟิก
+ค่าที่กรอกถูกบันทึกในเครื่องคุณอัตโนมัติ
 
 ---
 
@@ -50,31 +48,18 @@
 ```bash
 npm install
 npm run app          # เปิด GUI
-npm run pack:win     # สร้าง .exe (บน Windows หรือใน GitHub Actions)
+npm run pack:win     # สร้าง Setup + portable (+ latest.yml / blockmap)
 ```
-
-CLI เดิมยังใช้ได้ (`npm start`, `.env.example`) แต่ผู้ใช้ทั่วไปไม่จำเป็นต้องใช้
 
 โครงสร้างหลัก:
 
 ```
-electron/           # หน้าต่าง GUI (ไทย)
-src/                # ตรรกะ Playwright / Flash Sale
-scripts/prepare-browsers.cjs
+electron/           # GUI + auto-updater
+src/                # Playwright / Flash Sale
 .github/workflows/release-windows.yml
 ```
 
-Chromium ของ Playwright ถูกบรรจุไปกับตัวติดตั้งแล้ว ไม่ต้องลงแยก
-
----
-
-## สร้างไฟล์ดาวน์โหลด (Release)
-
-บน GitHub:
-
-1. สร้างแท็ก เช่น `v1.1.0` แล้ว push  
-   หรือรัน workflow **Build Windows Release** แบบ manual
-2. เมื่อบิลด์เสร็จ ไฟล์ `.exe` จะถูกแนบใน Release / Artifacts
+Release ต้องแนบ `*.exe`, `*.blockmap`, และ `latest.yml` เพื่อให้ electron-updater ทำงาน
 
 ---
 
