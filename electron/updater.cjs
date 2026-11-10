@@ -1,29 +1,46 @@
 /**
  * Auto-update via electron-updater + GitHub Releases (NSIS installer).
- * Portable builds cannot self-update — skip quietly there.
+ * Portable builds cannot self-update — UI should link to the download page.
  */
 const { dialog, app } = require("electron");
+
+const RELEASES_URL = "https://github.com/LatinR9/Shopee-BOTR9/releases";
+
+function detectPortable() {
+  const execPath = String(process.execPath || "").toLowerCase();
+  return Boolean(
+    process.env.PORTABLE_EXECUTABLE_DIR ||
+      execPath.includes("portable") ||
+      /\\temp\\/i.test(execPath) ||
+      /\\appdata\\local\\temp\\/i.test(execPath)
+  );
+}
 
 /**
  * @param {() => import('electron').BrowserWindow | null} getMainWindow
  */
 function setupAutoUpdater(getMainWindow) {
-  // Dev / unpackaged: no update feed
+  const portable = detectPortable();
+  const version = app.getVersion();
+
   if (!app.isPackaged) {
-    return { enabled: false, reason: "dev" };
+    return {
+      enabled: false,
+      reason: "dev",
+      version,
+      releasesUrl: RELEASES_URL,
+      portable: false,
+    };
   }
 
-  // Portable Electron apps usually run from a temp/extract path and cannot
-  // replace themselves via NSIS. Detect common portable markers.
-  const execPath = process.execPath.toLowerCase();
-  const isPortable =
-    process.env.PORTABLE_EXECUTABLE_DIR ||
-    execPath.includes("portable") ||
-    /\\temp\\/i.test(execPath) ||
-    /\\appdata\\local\\temp\\/i.test(execPath);
-
-  if (isPortable) {
-    return { enabled: false, reason: "portable" };
+  if (portable) {
+    return {
+      enabled: false,
+      reason: "portable",
+      version,
+      releasesUrl: RELEASES_URL,
+      portable: true,
+    };
   }
 
   let autoUpdater;
@@ -31,17 +48,25 @@ function setupAutoUpdater(getMainWindow) {
     ({ autoUpdater } = require("electron-updater"));
   } catch (err) {
     console.warn("[updater] electron-updater missing:", err.message);
-    return { enabled: false, reason: "missing_module" };
+    return {
+      enabled: false,
+      reason: "missing_module",
+      version,
+      releasesUrl: RELEASES_URL,
+      portable: false,
+    };
   }
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-  // Unsigned Windows builds — do not require a code signature to apply updates
   try {
     autoUpdater.verifyUpdateCodeSignature = false;
   } catch {
-    // older electron-updater may not expose this
+    // older electron-updater
   }
+
+  /** @type {{ version?: string } | null} */
+  let pendingUpdate = null;
 
   const send = (channel, payload) => {
     const win = getMainWindow();
@@ -55,17 +80,19 @@ function setupAutoUpdater(getMainWindow) {
   });
 
   autoUpdater.on("update-available", (info) => {
+    pendingUpdate = { version: info.version };
     send("update:status", {
       state: "available",
-      message: `พบเวอร์ชันใหม่ ${info.version}`,
+      message: `มีเวอร์ชันใหม่ ${info.version} ให้ดาวน์โหลด`,
       version: info.version,
     });
   });
 
   autoUpdater.on("update-not-available", () => {
+    pendingUpdate = null;
     send("update:status", {
       state: "none",
-      message: "คุณใช้เวอร์ชันล่าสุดแล้ว",
+      message: "เป็นเวอร์ชันล่าสุดแล้ว",
     });
   });
 
@@ -79,9 +106,10 @@ function setupAutoUpdater(getMainWindow) {
   });
 
   autoUpdater.on("update-downloaded", async (info) => {
+    pendingUpdate = { version: info.version };
     send("update:status", {
       state: "ready",
-      message: `ดาวน์โหลดเวอร์ชัน ${info.version} เสร็จแล้ว`,
+      message: `ดาวน์โหลดเวอร์ชัน ${info.version} เสร็จแล้ว — พร้อมติดตั้ง`,
       version: info.version,
     });
 
@@ -111,21 +139,47 @@ function setupAutoUpdater(getMainWindow) {
 
   const check = async () => {
     try {
-      await autoUpdater.checkForUpdates();
+      const result = await autoUpdater.checkForUpdates();
+      const remote = result?.updateInfo?.version;
+      const hasUpdate = Boolean(
+        remote && remote !== version && (result?.downloadPromise !== undefined || pendingUpdate)
+      );
+      // Prefer event-driven state; also return a summary for IPC callers.
+      if (remote && remote !== app.getVersion()) {
+        pendingUpdate = { version: remote };
+        return {
+          ok: true,
+          state: "available",
+          version: remote,
+          message: `มีเวอร์ชันใหม่ ${remote} ให้ดาวน์โหลด`,
+        };
+      }
+      pendingUpdate = null;
+      return {
+        ok: true,
+        state: "none",
+        version: app.getVersion(),
+        message: "เป็นเวอร์ชันล่าสุดแล้ว",
+      };
     } catch (err) {
-      send("update:status", {
-        state: "error",
-        message: `ตรวจอัปเดตไม่สำเร็จ: ${err?.message || err}`,
-      });
+      const message = `ตรวจอัปเดตไม่สำเร็จ: ${err?.message || err}`;
+      send("update:status", { state: "error", message });
+      return { ok: false, state: "error", message };
     }
   };
 
   const download = async () => {
     try {
+      if (!pendingUpdate) {
+        const checked = await check();
+        if (checked.state !== "available") {
+          return checked;
+        }
+      }
       await autoUpdater.downloadUpdate();
-      return { ok: true };
+      return { ok: true, state: "downloading" };
     } catch (err) {
-      return { ok: false, message: err?.message || String(err) };
+      return { ok: false, state: "error", message: err?.message || String(err) };
     }
   };
 
@@ -133,12 +187,22 @@ function setupAutoUpdater(getMainWindow) {
     autoUpdater.quitAndInstall(false, true);
   };
 
-  // Startup check (slight delay so the window can load)
+  // Quiet startup check
   setTimeout(() => {
-    check();
+    check().catch(() => {});
   }, 2500);
 
-  return { enabled: true, check, download, install };
+  return {
+    enabled: true,
+    reason: null,
+    version,
+    releasesUrl: RELEASES_URL,
+    portable: false,
+    check,
+    download,
+    install,
+    getPending: () => pendingUpdate,
+  };
 }
 
-module.exports = { setupAutoUpdater };
+module.exports = { setupAutoUpdater, RELEASES_URL };

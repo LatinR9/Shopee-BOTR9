@@ -127,16 +127,69 @@ ipcMain.handle("job:stop", () => {
   return { ok: false, reason: "idle" };
 });
 
+ipcMain.handle("app:info", () => {
+  return {
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+    updaterEnabled: Boolean(updaterApi.enabled),
+    reason: updaterApi.reason || null,
+    portable: Boolean(updaterApi.portable),
+    releasesUrl:
+      updaterApi.releasesUrl || "https://github.com/LatinR9/Shopee-BOTR9/releases",
+  };
+});
+
+ipcMain.handle("update:open-releases", async () => {
+  const url =
+    updaterApi.releasesUrl || "https://github.com/LatinR9/Shopee-BOTR9/releases";
+  await shell.openExternal(url);
+  return { ok: true, url };
+});
+
 ipcMain.handle("update:check", async () => {
   if (!updaterApi.enabled || !updaterApi.check) {
+    const releasesUrl =
+      updaterApi.releasesUrl || "https://github.com/LatinR9/Shopee-BOTR9/releases";
+    if (updaterApi.reason === "portable") {
+      const message =
+        "เวอร์ชันพกพา (portable) อัปเดตในเครื่องไม่ได้ — ดาวน์โหลด Setup จากหน้า Releases";
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("update:status", {
+          state: "portable",
+          message,
+          releasesUrl,
+        });
+      }
+      return { ok: false, reason: "portable", message, releasesUrl };
+    }
+    if (updaterApi.reason === "dev") {
+      const message = "โหมดพัฒนา — ตรวจอัปเดตได้เฉพาะตัวติดตั้งที่แพ็กแล้ว";
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("update:status", {
+          state: "skipped",
+          message,
+        });
+      }
+      return { ok: false, reason: "dev", message };
+    }
     return { ok: false, reason: updaterApi.reason || "disabled" };
   }
-  await updaterApi.check();
-  return { ok: true };
+  return updaterApi.check();
 });
 
 ipcMain.handle("update:download", async () => {
   if (!updaterApi.enabled || !updaterApi.download) {
+    if (updaterApi.reason === "portable") {
+      const releasesUrl =
+        updaterApi.releasesUrl || "https://github.com/LatinR9/Shopee-BOTR9/releases";
+      await shell.openExternal(releasesUrl);
+      return {
+        ok: false,
+        reason: "portable",
+        message: "เปิดหน้าดาวน์โหลดแล้ว — เลือกไฟล์ Setup เพื่ออัปเดต",
+        releasesUrl,
+      };
+    }
     return { ok: false, reason: updaterApi.reason || "disabled" };
   }
   return updaterApi.download();
@@ -251,16 +304,16 @@ app.whenReady().then(() => {
 
   updaterApi = setupAutoUpdater(() => mainWindow);
   if (!updaterApi.enabled && updaterApi.reason === "portable") {
-    // Portable cannot self-update — tell the UI once quietly
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("update:status", {
-          state: "skipped",
+          state: "portable",
           message:
-            "เวอร์ชันพกพา (portable) อัปเดตเองไม่ได้ — ใช้ตัวติดตั้ง หรือดาวน์โหลดใหม่จาก Releases",
+            "เวอร์ชันพกพา (portable) อัปเดตในเครื่องไม่ได้ — กดเปิดหน้าดาวน์โหลดเพื่อเอา Setup",
+          releasesUrl: updaterApi.releasesUrl,
         });
       }
-    }, 3000);
+    }, 1500);
   }
 
   app.on("activate", () => {

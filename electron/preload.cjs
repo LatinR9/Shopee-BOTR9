@@ -5,9 +5,11 @@ contextBridge.exposeInMainWorld("shopeeBot", {
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
   startJob: (payload) => ipcRenderer.invoke("job:start", payload),
   stopJob: () => ipcRenderer.invoke("job:stop"),
+  getAppInfo: () => ipcRenderer.invoke("app:info"),
   checkForUpdates: () => ipcRenderer.invoke("update:check"),
   downloadUpdate: () => ipcRenderer.invoke("update:download"),
   installUpdate: () => ipcRenderer.invoke("update:install"),
+  openReleasesPage: () => ipcRenderer.invoke("update:open-releases"),
   scanVariants: (productUrl) => ipcRenderer.invoke("variants:scan", { productUrl }),
   onLog: (handler) => {
     const listener = (_event, entry) => handler(entry);
