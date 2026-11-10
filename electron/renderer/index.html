@@ -122,16 +122,29 @@
         </section>
       </main>
 
-      <div id="updateBanner" class="update-banner" hidden>
-        <span id="updateBannerText"></span>
-        <button id="updateBannerAction" class="btn primary tiny" type="button" hidden></button>
-      </div>
+      <section class="update-panel" aria-label="อัปเดตโปรแกรม">
+        <div class="update-panel-main">
+          <div>
+            <div class="update-version">
+              เวอร์ชันปัจจุบัน: <strong id="appVersionLabel">…</strong>
+            </div>
+            <p id="updateStatusText" class="update-status">กดเช็กอัปเดตเพื่อดูว่ามีเวอร์ชันใหม่หรือไม่</p>
+            <div id="updateProgressWrap" class="update-progress" hidden>
+              <div id="updateProgressBar" class="update-progress-bar"></div>
+            </div>
+          </div>
+          <div class="update-actions">
+            <button id="btnCheckUpdate" class="btn secondary" type="button">เช็กอัปเดต</button>
+            <button id="btnUpdateNow" class="btn primary" type="button" disabled>อัปเดตตอนนี้</button>
+          </div>
+        </div>
+      </section>
 
       <footer>
         ค่าที่ตั้งไว้ถูกบันทึกในเครื่องคุณอัตโนมัติ · Shopee อาจมี CAPTCHA / กันบอท
       </footer>
     </div>
     <script src="renderer.js"></script>
-    <script src="update-banner.js"></script>
+    <script src="update-panel.js"></script>
   </body>
 </html>
