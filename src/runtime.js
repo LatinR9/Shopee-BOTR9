@@ -4,7 +4,7 @@
  */
 import path from "node:path";
 import { screenshot } from "./browser.js";
-import { runFlashSale, dismissLanguageGate } from "./bot.js";
+import { dismissLanguageGate } from "./bot.js";
 import { SELECTORS, anyVisible } from "./selectors.js";
 import { settingsToConfig } from "./settings.js";
 import { createLogger } from "./logger.js";
@@ -53,39 +53,48 @@ export async function runBotJob(options) {
     userDataDir: profileDir || path.join(process.cwd(), ".auth", "user-data"),
   });
 
-  if (mode !== "login") {
-    if (!config.productUrl) {
-      throw new Error("กรุณาวางลิงก์สินค้า Shopee ก่อน");
-    }
+  if (mode === "login") {
+    logger.info("เปิดหน้าเข้าสู่ระบบ Shopee…");
+    const { context, page } = await getSharedBrowser({
+      profileDir: config.userDataDir,
+      resourcesPath,
+      headless,
+      onLog,
+    });
+    return runLogin(context, page, config, logger, signal);
+  }
+
+  // Multi-product path: one OS window per product, parallel Buy Now.
+  const { normalizeProducts } = await import("./products.js");
+  const products = normalizeProducts(settings).filter((p) => p.productUrl);
+  if (products.length === 0) {
+    throw new Error("กรุณาเพิ่มลิงก์สินค้า Shopee อย่างน้อย 1 รายการ");
+  }
+  for (const p of products) {
     try {
       // eslint-disable-next-line no-new
-      new URL(config.productUrl);
+      new URL(p.productUrl);
     } catch {
-      throw new Error("ลิงก์สินค้าไม่ถูกต้อง");
+      throw new Error(`ลิงก์สินค้าไม่ถูกต้อง: ${p.productUrl}`);
     }
   }
 
   logger.info(
-    mode === "login"
-      ? "เปิดหน้าเข้าสู่ระบบ Shopee…"
-      : mode === "dry-run"
-        ? "เริ่มโหมดทดสอบ…"
-        : "เริ่ม Flash Sale…"
+    mode === "dry-run"
+      ? `เริ่มโหมดทดสอบ (${products.length} สินค้า)…`
+      : `เริ่ม Flash Sale (${products.length} สินค้า · หน้าต่างละชิ้น)…`
   );
 
-  const { context, page } = await getSharedBrowser({
+  const { runMultiProductJob } = await import("./multi-product.js");
+  return runMultiProductJob({
+    settings,
+    mode,
+    onLog,
+    signal,
     profileDir: config.userDataDir,
     resourcesPath,
     headless,
-    onLog,
   });
-
-  if (mode === "login") {
-    return runLogin(context, page, config, logger, signal);
-  }
-
-  // Keep the shared window open after dry-run / start (warm page for the sale).
-  return runFlashSale(page, config, { logger, signal });
 }
 
 async function waitAbortable(ms, signal) {

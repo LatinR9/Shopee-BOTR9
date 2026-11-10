@@ -80,10 +80,12 @@ function readSettings() {
     variants: "",
     selectedVariants: [],
     variantScan: null,
+    products: [],
     preAddToCart: true,
     preclickMs: 500,
     clickTimeoutMs: 15000,
     autoPlaceOrder: false,
+    autoPromptPay: true,
     baseUrl: "https://shopee.co.th",
     username: "",
     password: "",
@@ -284,6 +286,7 @@ ipcMain.handle("variants:scan", async (_event, payload) => {
     return { ok: false, reason: "busy" };
   }
   const productUrl = String(payload?.productUrl || "").trim();
+  const productId = payload?.productId ? String(payload.productId) : null;
   if (!productUrl) {
     return { ok: false, reason: "no_url" };
   }
@@ -303,7 +306,17 @@ ipcMain.handle("variants:scan", async (_event, payload) => {
       onLog: (level, message) => sendLog(level, message),
     });
     if (result.ok) {
-      writeSettings({ variantScan: result });
+      const current = readSettings();
+      if (productId && Array.isArray(current.products)) {
+        const products = current.products.map((p) =>
+          p && String(p.id) === productId
+            ? { ...p, productUrl, variantScan: result }
+            : p
+        );
+        writeSettings({ products, productUrl, variantScan: result });
+      } else {
+        writeSettings({ variantScan: result, productUrl });
+      }
     }
     return result;
   } catch (err) {
