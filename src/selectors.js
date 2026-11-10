@@ -63,7 +63,22 @@ export const SELECTORS = {
     'button:has-text("สั่งซื้อ")',
   ],
 
+  // Cart page "check out" — only clicked while on /cart, because on the
+  // checkout page the same Thai text ("สั่งสินค้า") places the order.
+  cartCheckout: [
+    'button.shopee-button-solid--primary:has-text("สั่งสินค้า")',
+    'button:has-text("Check Out")',
+    'button:has-text("สั่งสินค้า")',
+  ],
+  addedToCartToast: /เพิ่มสินค้าลงในรถเข็น|เพิ่มลงในรถเข็น|added to (your )?(shopping )?cart/i,
+  variantRequiredMsg: /กรุณาเลือกตัวเลือก|please select (product )?variation/i,
+
   // Quantity
+  qtyInput: [
+    ".shopee-input-quantity input",
+    'input[role="spinbutton"]',
+    'div[class*="quantity"] input[type="text"]',
+  ],
   qtyIncrease: [
     'button[aria-label="Increase"]',
     'button:has-text("+")',

@@ -41,15 +41,36 @@
               <input id="saleStart" type="datetime-local" />
             </label>
             <label class="narrow">
-              <span>จำนวน</span>
+              <span>จำนวน (ต่อแบบ)</span>
               <input id="quantity" type="number" min="1" max="99" value="1" />
             </label>
           </div>
 
-          <label>
-            <span>ตัวเลือกสินค้า (คั่นด้วยจุลภาค เช่น สีดำ,XL)</span>
-            <input id="variants" type="text" placeholder="เว้นว่างได้ถ้าไม่มี" />
-          </label>
+          <section class="variants-box" aria-label="ตัวเลือกสินค้า">
+            <div class="variants-head">
+              <div>
+                <h2>ตัวเลือกสินค้า</h2>
+                <p id="variantStatus" class="hint">วางลิงก์แล้วกด "สแกนตัวเลือก" เพื่อดูสี / ขนาด</p>
+              </div>
+              <button id="btnScan" class="btn secondary" type="button">สแกนตัวเลือก</button>
+            </div>
+
+            <div id="variantTools" class="variant-tools" hidden>
+              <input id="variantFilter" type="text" placeholder="ค้นหา เช่น ดำ หรือ XL" />
+              <button id="btnSelectAll" class="btn ghost tiny" type="button">เลือกทั้งหมด</button>
+              <button id="btnSelectNone" class="btn ghost tiny" type="button">ไม่เลือก</button>
+            </div>
+            <ul id="variantList" class="variant-list"></ul>
+            <p id="variantSummary" class="variant-summary" hidden></p>
+
+            <details class="manual">
+              <summary>พิมพ์ตัวเลือกเอง (ถ้าสแกนไม่ได้)</summary>
+              <label>
+                <span>ตัวเลือกสินค้า (คั่นด้วยจุลภาค เช่น สีดำ,XL) — ใช้เมื่อไม่ได้ติ๊กจากรายการ</span>
+                <input id="variants" type="text" placeholder="เว้นว่างได้ถ้าไม่มี" />
+              </label>
+            </details>
+          </section>
 
           <details class="advanced">
             <summary>ตั้งค่าเพิ่มเติม</summary>
@@ -66,6 +87,10 @@
             <label class="check">
               <input id="autoPlaceOrder" type="checkbox" />
               <span>กดสั่งซื้ออัตโนมัติ (ระวัง — เปิดเมื่อมั่นใจแล้วเท่านั้น)</span>
+            </label>
+            <label class="check">
+              <input id="preAddToCart" type="checkbox" checked />
+              <span>หลายตัวเลือก: ใส่รถเข็นล่วงหน้าก่อนเวลาขาย (เร็วที่สุด)</span>
             </label>
             <div class="row">
               <label>

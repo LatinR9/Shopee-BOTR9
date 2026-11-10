@@ -78,6 +78,9 @@ function readSettings() {
     saleStart: "",
     quantity: 1,
     variants: "",
+    selectedVariants: [],
+    variantScan: null,
+    preAddToCart: true,
     preclickMs: 500,
     clickTimeoutMs: 15000,
     autoPlaceOrder: false,
@@ -193,6 +196,43 @@ ipcMain.handle("job:start", async (_event, payload) => {
   } finally {
     jobRunning = false;
     activeAbort = null;
+    sendStatus({ running: false, mode: null });
+  }
+});
+
+ipcMain.handle("variants:scan", async (_event, payload) => {
+  // Shares the job lock: scanning opens the same browser profile.
+  if (jobRunning) {
+    return { ok: false, reason: "busy" };
+  }
+  const productUrl = String(payload?.productUrl || "").trim();
+  if (!productUrl) {
+    return { ok: false, reason: "no_url" };
+  }
+
+  jobRunning = true;
+  sendStatus({ running: true, mode: "scan" });
+  try {
+    const variantsUrl = pathToFileURL(
+      path.join(__dirname, "..", "src", "variants.js")
+    ).href;
+    const { scanVariants } = await import(variantsUrl);
+    const result = await scanVariants({
+      productUrl,
+      baseUrl: readSettings().baseUrl,
+      profileDir: profileDir(),
+      resourcesPath: resourcesPath(),
+      onLog: (level, message) => sendLog(level, message),
+    });
+    if (result.ok) {
+      writeSettings({ variantScan: result });
+    }
+    return result;
+  } catch (err) {
+    sendLog("error", err?.message || String(err));
+    return { ok: false, reason: "error", message: err?.message || String(err) };
+  } finally {
+    jobRunning = false;
     sendStatus({ running: false, mode: null });
   }
 });
