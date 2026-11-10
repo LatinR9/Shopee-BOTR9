@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld("shopeeBot", {
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
   startJob: (payload) => ipcRenderer.invoke("job:start", payload),
   stopJob: () => ipcRenderer.invoke("job:stop"),
+  checkForUpdates: () => ipcRenderer.invoke("update:check"),
+  downloadUpdate: () => ipcRenderer.invoke("update:download"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
   onLog: (handler) => {
     const listener = (_event, entry) => handler(entry);
     ipcRenderer.on("job:log", listener);
@@ -14,5 +17,10 @@ contextBridge.exposeInMainWorld("shopeeBot", {
     const listener = (_event, status) => handler(status);
     ipcRenderer.on("job:status", listener);
     return () => ipcRenderer.removeListener("job:status", listener);
+  },
+  onUpdateStatus: (handler) => {
+    const listener = (_event, status) => handler(status);
+    ipcRenderer.on("update:status", listener);
+    return () => ipcRenderer.removeListener("update:status", listener);
   },
 });
