@@ -1,19 +1,39 @@
 import { SELECTORS, clickFirst, anyVisible } from "./selectors.js";
 import { screenshot } from "./browser.js";
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const t = setTimeout(resolve, ms);
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
-function log(...args) {
-  const ts = new Date().toISOString();
-  console.log(`[${ts}]`, ...args);
+function makeLog(logger) {
+  if (!logger) {
+    return (...args) => console.log(`[${new Date().toISOString()}]`, ...args);
+  }
+  return (...args) => logger.info(...args);
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
 }
 
 /** Wait until sale start minus preclickMs, logging countdown. */
-export async function waitForSaleStart(config) {
+export async function waitForSaleStart(config, { logger, signal } = {}) {
+  const log = makeLog(logger);
   if (!config.saleStart) {
-    log("No SHOPEE_SALE_START set — running immediately.");
+    log("ไม่ได้ตั้งเวลาเริ่มขาย — เริ่มทันที");
     return;
   }
 
@@ -21,26 +41,27 @@ export async function waitForSaleStart(config) {
   let remaining = target - Date.now();
 
   if (remaining <= 0) {
-    log("Sale start already reached — starting now.");
+    log("ถึงเวลาขายแล้ว — เริ่มเลย");
     return;
   }
 
   log(
-    `Waiting until ${config.saleStart.toISOString()} (preclick ${config.preclickMs}ms)…`
+    `รอถึง ${config.saleStart.toLocaleString("th-TH")} (กดล่วงหน้า ${config.preclickMs} ms)…`
   );
 
   while (remaining > 0) {
+    throwIfAborted(signal);
     const chunk = Math.min(remaining, remaining > 10_000 ? 5_000 : 200);
-    await sleep(chunk);
+    await sleep(chunk, signal);
     remaining = target - Date.now();
     if (remaining > 2000) {
-      log(`T-${Math.ceil(remaining / 1000)}s`);
+      log(`อีก ${Math.ceil(remaining / 1000)} วินาที`);
     }
   }
-  log("Go!");
+  log("เริ่มกด!");
 }
 
-async function selectVariants(page, variants) {
+async function selectVariants(page, variants, log) {
   for (const label of variants) {
     const patterns = [
       `button:has-text("${label}")`,
@@ -49,20 +70,20 @@ async function selectVariants(page, variants) {
     ];
     try {
       const used = await clickFirst(page, patterns, { timeout: 2500 });
-      log(`Selected variant "${label}" via ${used}`);
+      log(`เลือกตัวเลือก "${label}" แล้ว (${used})`);
     } catch {
-      log(`Warning: could not click variant "${label}" — check SHOPEE_VARIANTS`);
+      log(`คำเตือน: กดตัวเลือก "${label}" ไม่ได้ — ตรวจช่องตัวเลือกสินค้า`);
     }
   }
 }
 
-async function setQuantity(page, quantity) {
+async function setQuantity(page, quantity, log) {
   if (quantity <= 1) return;
   for (let i = 1; i < quantity; i++) {
     try {
       await clickFirst(page, SELECTORS.qtyIncrease, { timeout: 1500 });
     } catch {
-      log("Could not increase quantity — leaving default.");
+      log("เพิ่มจำนวนไม่ได้ — ใช้ค่าเริ่มต้น");
       break;
     }
   }
@@ -72,11 +93,12 @@ async function setQuantity(page, quantity) {
  * Rapidly try Buy Now until success or timeout.
  * Shopee often disables the button until the flash sale unlocks.
  */
-async function spamBuyNow(page, timeoutMs) {
+async function spamBuyNow(page, timeoutMs, { log, signal }) {
   const deadline = Date.now() + timeoutMs;
   let attempts = 0;
 
   while (Date.now() < deadline) {
+    throwIfAborted(signal);
     attempts += 1;
     for (const sel of SELECTORS.buyNow) {
       try {
@@ -86,26 +108,24 @@ async function spamBuyNow(page, timeoutMs) {
         const disabled = await loc.isDisabled().catch(() => false);
         if (disabled) continue;
         await loc.click({ timeout: 250, force: true });
-        log(`Buy Now clicked (${sel}) after ${attempts} attempt(s)`);
+        log(`กดซื้อสินค้าแล้ว (${sel}) หลังลอง ${attempts} ครั้ง`);
         return true;
       } catch {
         // keep spamming
       }
     }
-    // Soft reload occasionally if button never appears
     if (attempts % 80 === 0) {
       await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
-      await dismissLanguageGate(page).catch(() => {});
+      await dismissLanguageGate(page, { log }).catch(() => {});
     }
-    await sleep(25);
+    await sleep(25, signal);
   }
 
-  log(`Buy Now failed after ${attempts} attempt(s)`);
+  log(`กดซื้อไม่สำเร็จหลังลอง ${attempts} ครั้ง`);
   return false;
 }
 
-async function tryCheckout(page, autoPlaceOrder) {
-  // Cart popup / checkout page
+async function tryCheckout(page, autoPlaceOrder, log) {
   const onCheckout =
     page.url().includes("/checkout") ||
     (await anyVisible(page, SELECTORS.checkout, 4000));
@@ -113,12 +133,12 @@ async function tryCheckout(page, autoPlaceOrder) {
   if (await anyVisible(page, SELECTORS.checkout, 3000)) {
     try {
       await clickFirst(page, SELECTORS.checkout, { timeout: 5000 });
-      log("Checkout clicked.");
+      log("กดไปหน้าชำระเงินแล้ว");
     } catch (err) {
-      log(`Checkout click failed: ${err.message}`);
+      log(`กด Checkout ไม่ได้: ${err.message}`);
     }
   } else if (!onCheckout) {
-    log("Checkout button not found — may already be on checkout or need manual step.");
+    log("ไม่พบปุ่ม Checkout — อาจอยู่หน้าชำระเงินแล้ว หรือต้องทำต่อเอง");
   }
 
   await page.waitForLoadState("domcontentloaded").catch(() => {});
@@ -126,12 +146,12 @@ async function tryCheckout(page, autoPlaceOrder) {
   if (autoPlaceOrder) {
     try {
       await clickFirst(page, SELECTORS.placeOrder, { timeout: 8000 });
-      log("Place Order clicked (SHOPEE_AUTO_PLACE_ORDER=true).");
+      log("กดสั่งซื้อแล้ว (เปิดยืนยันอัตโนมัติไว้)");
     } catch (err) {
-      log(`Place Order not clicked: ${err.message}`);
+      log(`ยังไม่ได้กดสั่งซื้อ: ${err.message}`);
     }
   } else {
-    log("Stopped before Place Order (set SHOPEE_AUTO_PLACE_ORDER=true to auto-confirm).");
+    log("หยุดก่อนกดสั่งซื้อ — กรุณายืนยันการชำระเงินเองในหน้าต่างเบราว์เซอร์");
   }
 }
 
@@ -150,7 +170,8 @@ export async function detectTrafficBlock(page) {
 }
 
 /** Dismiss Shopee's first-visit language picker if present. */
-export async function dismissLanguageGate(page) {
+export async function dismissLanguageGate(page, { log } = {}) {
+  const write = log || ((...a) => console.log(...a));
   const visible = await anyVisible(
     page,
     [...SELECTORS.languageThai, ...SELECTORS.languageEnglish],
@@ -160,10 +181,10 @@ export async function dismissLanguageGate(page) {
 
   try {
     await clickFirst(page, SELECTORS.languageThai, { timeout: 2000 });
-    log('Selected language: ไทย');
+    write("เลือกภาษา: ไทย");
   } catch {
     await clickFirst(page, SELECTORS.languageEnglish, { timeout: 2000 });
-    log("Selected language: English");
+    write("Selected language: English");
   }
   await page.waitForTimeout(500);
   return true;
@@ -173,12 +194,14 @@ export async function dismissLanguageGate(page) {
  * Main flash-sale purchase attempt.
  * Goes as far as the platform allows without storing secrets in code.
  */
-export async function runFlashSale(page, config) {
-  log(`Opening product: ${config.productUrl}`);
-  await page.goto(config.productUrl, { waitUntil: "domcontentloaded" });
-  await dismissLanguageGate(page);
+export async function runFlashSale(page, config, { logger, signal } = {}) {
+  const log = makeLog(logger);
+  throwIfAborted(signal);
 
-  // Language gate sometimes navigates away — return to product.
+  log(`เปิดสินค้า: ${config.productUrl}`);
+  await page.goto(config.productUrl, { waitUntil: "domcontentloaded" });
+  await dismissLanguageGate(page, { log });
+
   if (!page.url().includes("/product/") && !page.url().includes("-i.")) {
     await page.goto(config.productUrl, { waitUntil: "domcontentloaded" });
   }
@@ -186,45 +209,42 @@ export async function runFlashSale(page, config) {
   const blocked = await detectTrafficBlock(page);
   if (blocked) {
     const shot = await screenshot(page, "traffic-block");
-    log(`Shopee anti-bot / traffic check hit: ${blocked}`);
-    log(`Screenshot: ${shot}`);
-    log(
-      "Tip: run headed (`SHOPEE_HEADLESS=false` or `--headed`), complete any CAPTCHA, then `npm run login` to reuse the session."
-    );
+    log(`เจอหน้ากันบอทของ Shopee: ${blocked}`);
+    log(`สกรีนช็อต: ${shot}`);
+    log("แนะนำ: กดปุ่ม \"เข้าสู่ระบบ\" ให้ผ่าน CAPTCHA ก่อน แล้วลองใหม่");
     return { ok: false, reason: "traffic_block", url: blocked };
   }
 
   if (config.dryRun) {
-    log("DRY RUN — warming page only, no Buy Now.");
-    await selectVariants(page, config.variants);
-    await setQuantity(page, config.quantity);
+    log("โหมดทดสอบ — เปิดหน้าสินค้าอย่างเดียว ไม่กดซื้อ");
+    await selectVariants(page, config.variants, log);
+    await setQuantity(page, config.quantity, log);
     const shot = await screenshot(page, "dry-run");
-    log(`Screenshot: ${shot}`);
+    log(`สกรีนช็อต: ${shot}`);
     return { ok: true, dryRun: true };
   }
 
-  // Warm the page + variants before the clock hits
-  await selectVariants(page, config.variants);
-  await setQuantity(page, config.quantity);
+  await selectVariants(page, config.variants, log);
+  await setQuantity(page, config.quantity, log);
 
-  await waitForSaleStart(config);
+  await waitForSaleStart(config, { logger, signal });
+  throwIfAborted(signal);
 
-  // Refresh right at go-time for freshest stock state
   await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
-  await selectVariants(page, config.variants);
-  await setQuantity(page, config.quantity);
+  await selectVariants(page, config.variants, log);
+  await setQuantity(page, config.quantity, log);
 
-  const bought = await spamBuyNow(page, config.clickTimeoutMs);
+  const bought = await spamBuyNow(page, config.clickTimeoutMs, { log, signal });
   const shot = await screenshot(page, bought ? "buy-clicked" : "buy-failed");
-  log(`Screenshot: ${shot}`);
+  log(`สกรีนช็อต: ${shot}`);
 
   if (!bought) {
     return { ok: false, reason: "buy_now_timeout" };
   }
 
-  await tryCheckout(page, config.autoPlaceOrder);
+  await tryCheckout(page, config.autoPlaceOrder, log);
   const finalShot = await screenshot(page, "checkout");
-  log(`Final screenshot: ${finalShot}`);
+  log(`สกรีนช็อตสุดท้าย: ${finalShot}`);
 
   return { ok: true };
 }

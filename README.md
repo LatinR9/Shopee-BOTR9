@@ -1,113 +1,80 @@
-# Shopee-BOTR9 — Flash Sale Click Bot
+# Shopee Flash Sale Bot (Windows)
 
-บอทกด Flash Sale ของ Shopee ด้วย Playwright  
-Shopee Flash Sale auto-click / checkout helper (Playwright).
+โปรแกรมช่วยกดซื้อ **Shopee Flash Sale** แบบมีหน้าต่างภาษาไทย  
+ดับเบิลคลิกแล้วใช้ได้ — ไม่ต้องเปิด Terminal หรือแก้ไฟล์ `.env`
 
-> **ข้อจำกัด / Limitations:** Shopee มี CAPTCHA, OTP, anti-bot และกฎการใช้งาน  
-> บอทนี้ช่วยเปิดหน้ารสินค้า → กดซื้อ/เช็คเอาต์ให้เร็วขึ้นเท่านั้น  
-> ไม่รับประกันว่าจะซื้อได้เสมอ และอาจผิด Terms of Service — ใช้ด้วยความรับผิดชอบของคุณเอง
-
----
-
-## สิ่งที่ทำได้ / What it does
-
-1. เปิดลิงก์สินค้าที่ตั้งไว้  
-2. รอถึงเวลา Flash Sale (`SHOPEE_SALE_START`)  
-3. กด **ซื้อสินค้า / Buy Now** ซ้ำๆ ทันทีที่ปุ่มพร้อม  
-4. พยายามไปหน้า Checkout  
-5. (ถ้าเปิด) กด Place Order — ค่าเริ่มต้นคือ **ปิด** เพื่อให้คุณยืนยันเอง
-
-รหัสผ่าน / cookie / token **ไม่ถูก hardcode** — ใส่ใน `.env` เท่านั้น (ไฟล์นี้ถูก gitignore)
+> **ข้อจำกัด:** Shopee มี CAPTCHA / OTP / ระบบกันบอท และกฎการใช้งาน  
+> โปรแกรมนี้ช่วยเปิดหน้ารสินค้าและกดซื้อให้เร็วขึ้นเท่านั้น  
+> ไม่รับประกันว่าจะซื้อได้เสมอ — ใช้ด้วยความรับผิดชอบของคุณเอง
 
 ---
 
-## ติดตั้ง / Setup
+## สำหรับผู้ใช้ทั่วไป (Windows)
 
-ต้องมี **Node.js 18+**
+### 1) ดาวน์โหลด
+
+ไปที่หน้า **Releases** ของโปรเจกต์นี้:
+
+**https://github.com/LatinR9/Shopee-BOTR9/releases**
+
+เลือกไฟล์อย่างใดอย่างหนึ่ง:
+
+| ไฟล์ | วิธีใช้ |
+|------|---------|
+| `ShopeeFlashSaleBot-*-portable.exe` | **แนะนำ** — ดับเบิลคลิกเปิดได้เลย ไม่ต้องติดตั้ง |
+| `ShopeeFlashSaleBot-*-win-x64.exe` | ตัวติดตั้ง (สร้างไอคอนบนเดสก์ท็อป) |
+
+ถ้ายังไม่มี Release ให้ดูแท็บ **Actions → Build Windows Release** แล้วดาวน์โหลด Artifact `windows-builds`  
+หรือรอผู้ดูแลสร้างแท็ก `v1.1.0` เพื่อเผยแพร่
+
+### 2) เปิดโปรแกรม
+
+1. ดับเบิลคลิกไฟล์ `.exe`
+2. ถ้า Windows ขึ้นคำเตือน SmartScreen กด **More info → Run anyway** (เพราะยังไม่ได้ซื้อรหัสเซ็นชื่อ)
+3. หน้าต่างโปรแกรมจะเปิดขึ้น
+
+### 3) ใช้งาน
+
+1. กด **เข้าสู่ระบบ** → ล็อกอิน Shopee ในเบราว์เซอร์ที่เปิดขึ้น (ทำ CAPTCHA/OTP เองได้)
+2. วาง **ลิงก์สินค้า** และตั้ง **เวลาเริ่ม Flash Sale**
+3. (ถ้าต้องการ) กด **ทดสอบ** เพื่อเปิดหน้าสินค้าโดยไม่กดซื้อ
+4. กด **เริ่มกด Flash Sale**
+5. กด **หยุด** ได้ทุกเมื่อ
+
+ค่าที่กรอกจะถูก**บันทึกในเครื่องคุณอัตโนมัติ** ไม่ต้องแก้ไฟล์คอนฟิก
+
+---
+
+## สำหรับนักพัฒนา
 
 ```bash
-git clone https://github.com/LatinR9/Shopee-BOTR9.git
-cd Shopee-BOTR9
 npm install
-cp .env.example .env
+npm run app          # เปิด GUI
+npm run pack:win     # สร้าง .exe (บน Windows หรือใน GitHub Actions)
 ```
 
-แก้ `.env`:
+CLI เดิมยังใช้ได้ (`npm start`, `.env.example`) แต่ผู้ใช้ทั่วไปไม่จำเป็นต้องใช้
 
-| ตัวแปร | ความหมาย |
-|--------|----------|
-| `SHOPEE_PRODUCT_URL` | ลิงก์สินค้าเต็ม (จำเป็น) |
-| `SHOPEE_SALE_START` | เวลาเริ่มขาย เช่น `2026-11-10T12:00:00+07:00` |
-| `SHOPEE_PRECLICK_MS` | เริ่มกดก่อนกี่ ms (ค่าเริ่มต้น 500) |
-| `SHOPEE_QUANTITY` | จำนวน |
-| `SHOPEE_VARIANTS` | ตัวเลือกสินค้า คั่นด้วยจุลภาค เช่น `สีดำ,XL` |
-| `SHOPEE_USERNAME` / `SHOPEE_PASSWORD` | สำหรับ `npm run login` เท่านั้น |
-| `SHOPEE_HEADLESS` | `false` = เห็นเบราว์เซอร์ (แนะนำครั้งแรก) |
-| `SHOPEE_AUTO_PLACE_ORDER` | `true` = กดสั่งซื้ออัตโนมัติ (ระวัง) |
-| `SHOPEE_USER_DATA_DIR` | โฟลเดอร์เซฟ session (ค่าเริ่มต้น `.auth/user-data`) |
+โครงสร้างหลัก:
+
+```
+electron/           # หน้าต่าง GUI (ไทย)
+src/                # ตรรกะ Playwright / Flash Sale
+scripts/prepare-browsers.cjs
+.github/workflows/release-windows.yml
+```
+
+Chromium ของ Playwright ถูกบรรจุไปกับตัวติดตั้งแล้ว ไม่ต้องลงแยก
 
 ---
 
-## ล็อกอินครั้งแรก / First login
+## สร้างไฟล์ดาวน์โหลด (Release)
 
-รันแบบเห็นหน้าจอ แล้วล็อกอิน (CAPTCHA/OTP ทำมือได้):
+บน GitHub:
 
-```bash
-npm run login
-```
-
-เซสชันจะถูกเก็บใน `.auth/` (ไม่ commit)
-
-หรือใส่ `SHOPEE_USERNAME` + `SHOPEE_PASSWORD` ใน `.env` แล้วให้สคริปต์พยายามกรอกให้อัตโนมัติ
-
----
-
-## รันบอท / Run
-
-ทดสอบเปิดหน้าสินค้าอย่างเดียว:
-
-```bash
-npm run dry-run
-```
-
-รันจริง:
-
-```bash
-npm start
-```
-
-เปิดเบราว์เซอร์บังคับ:
-
-```bash
-node src/index.js --headed
-```
-
-สกรีนช็อตจะอยู่ที่โฟลเดอร์ `screenshots/`
-
----
-
-## โครงสร้าง / Layout
-
-```
-src/
-  index.js      # entry
-  bot.js        # รอเวลา + กด Buy Now / checkout
-  login.js      # บันทึก session
-  config.js     # อ่าน .env
-  selectors.js  # CSS / text selectors (อัปเดตได้เมื่อ UI เปลี่ยน)
-  browser.js    # Playwright persistent profile
-.env.example    # ตัวอย่างคอนฟิก (ไม่มี secret)
-```
-
----
-
-## ข้อควรรู้ / Notes
-
-- DOM ของ Shopee เปลี่ยนบ่อย — ถ้าปุ่มไม่ถูกกด ให้แก้รายการใน `src/selectors.js`
-- สต็อกหมดเร็ว / คิว / CAPTCHA / หน้า `/verify/traffic` (anti-bot) อาจทำให้พลาดได้  
-  ถ้าเจอหน้าตรวจจับบอท ให้รันแบบเห็นหน้าจอ (`SHOPEE_HEADLESS=false`) แล้ว `npm run login` ให้ผ่าน CAPTCHA ก่อน
-- อย่า commit ไฟล์ `.env`, `.auth/`, `cookies.json`
-- ใช้กับบัญชีตัวเองและยอมรับความเสี่ยงด้านบัญชีถูกจำกัด
+1. สร้างแท็ก เช่น `v1.1.0` แล้ว push  
+   หรือรัน workflow **Build Windows Release** แบบ manual
+2. เมื่อบิลด์เสร็จ ไฟล์ `.exe` จะถูกแนบใน Release / Artifacts
 
 ---
 

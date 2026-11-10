@@ -1,72 +1,84 @@
 /**
- * Shopee Flash Sale bot entrypoint.
+ * CLI entry (optional). Beginners should use the desktop app instead.
  *
  *   npm start
  *   npm run dry-run
- *   node src/index.js --headed
  */
+import path from "node:path";
+import os from "node:os";
 import { loadConfig, assertReady } from "./config.js";
-import { launchBrowser } from "./browser.js";
-import { runFlashSale } from "./bot.js";
+import { runBotJob } from "./runtime.js";
+import { loadSettings, defaultSettingsPath } from "./settings.js";
 
 function printHelp() {
   console.log(`
-Shopee Flash Sale bot (Playwright)
+Shopee Flash Sale bot
 
-Usage:
-  npm start              Run with .env settings
-  npm run dry-run        Open product page only (no Buy Now)
-  npm run login          Save a browser login session
-  node src/index.js --headed
+ผู้ใช้ทั่วไป: ดาวน์โหลดโปรแกรม Windows แล้วดับเบิลคลิก (ดู README)
 
-Config: copy .env.example → .env
-Required: SHOPEE_PRODUCT_URL
-Optional: SHOPEE_SALE_START, SHOPEE_VARIANTS, SHOPEE_QUANTITY, …
-
-Limitations: CAPTCHA, OTP, stock races, and ToS may block automation.
+นักพัฒนา:
+  npm run app          เปิดหน้าต่าง GUI
+  npm start            รัน CLI จาก .env / settings
+  npm run dry-run
+  npm run login
 `.trim());
 }
 
 async function main() {
-  const config = loadConfig();
-  if (config.help) {
+  const argv = process.argv.slice(2);
+  if (argv.includes("--help") || argv.includes("-h")) {
     printHelp();
     return;
   }
 
-  assertReady(config);
+  const dryRun = argv.includes("--dry-run");
+  const settingsFile = defaultSettingsPath();
+  const fileSettings = loadSettings(settingsFile);
 
-  console.log("=== Shopee Flash Sale Bot ===");
-  console.log(`Product : ${config.productUrl}`);
-  console.log(`Sale at : ${config.saleStart ? config.saleStart.toISOString() : "(now)"}`);
-  console.log(`Qty     : ${config.quantity}`);
-  console.log(`Variants: ${config.variants.join(", ") || "(none)"}`);
-  console.log(`Headless: ${config.headless}`);
-  console.log(`Dry run : ${config.dryRun}`);
-  console.log(`Auto PO : ${config.autoPlaceOrder}`);
-  console.log("=============================");
-
-  const { context, page } = await launchBrowser(config);
-
+  // Prefer .env/CLI when product URL present; else local settings.json
+  let settings = fileSettings;
   try {
-    const result = await runFlashSale(page, config);
-    if (!result.ok) {
-      console.error("Bot finished without a successful Buy Now.", result);
-      process.exitCode = 2;
-    } else {
-      console.log("Done.", result);
-      if (!config.dryRun && !config.autoPlaceOrder) {
-        console.log(
-          "Complete payment / OTP in the browser if needed, then close the window."
-        );
-        // Keep browser open briefly so the user can finish checkout manually
-        if (!config.headless) {
-          await page.waitForTimeout(60_000).catch(() => {});
-        }
-      }
+    const envConfig = loadConfig(argv);
+    if (envConfig.help) {
+      printHelp();
+      return;
     }
-  } finally {
-    await context.close().catch(() => {});
+    if (envConfig.productUrl) {
+      assertReady(envConfig);
+      settings = {
+        ...fileSettings,
+        productUrl: envConfig.productUrl,
+        saleStart: envConfig.saleStart ? envConfig.saleStart.toISOString() : "",
+        quantity: envConfig.quantity,
+        variants: envConfig.variants.join(","),
+        preclickMs: envConfig.preclickMs,
+        clickTimeoutMs: envConfig.clickTimeoutMs,
+        autoPlaceOrder: envConfig.autoPlaceOrder,
+        baseUrl: envConfig.baseUrl,
+        username: envConfig.username,
+        password: envConfig.password,
+      };
+    }
+  } catch (err) {
+    if (!fileSettings.productUrl) throw err;
+  }
+
+  const profileDir =
+    process.env.SHOPEE_USER_DATA_DIR ||
+    path.join(os.homedir(), ".shopee-botr9", "browser-profile");
+
+  const result = await runBotJob({
+    settings,
+    mode: dryRun ? "dry-run" : "start",
+    profileDir,
+    headless: process.env.SHOPEE_HEADLESS === "true" && !argv.includes("--headed"),
+  });
+
+  if (!result.ok) {
+    console.error("จบงานโดยไม่สำเร็จ", result);
+    process.exitCode = 2;
+  } else {
+    console.log("เสร็จแล้ว", result);
   }
 }
 
