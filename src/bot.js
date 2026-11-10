@@ -78,38 +78,118 @@ async function selectVariants(page, variants, log) {
   }
 }
 
+/** Normalize variation labels for fuzzy match (whitespace / dash variants). */
+function normalizeLabel(text) {
+  return String(text || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[‐‑‒–—―]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function isSelectedVariation(el) {
+  const cls = String(el.className || "");
+  return (
+    /selected|active|product-variation--selected/i.test(cls) ||
+    el.getAttribute("aria-checked") === "true" ||
+    el.getAttribute("aria-pressed") === "true" ||
+    Boolean(el.querySelector('[class*="tick"], [class*="selected"]'))
+  );
+}
+
 /**
  * Click a product option button, skipping it when already selected
  * (Shopee toggles a selected option off on a second click).
+ * Handles thumbnail+text buttons where :text-is / aria-label often miss.
  */
 async function selectOption(page, label) {
+  const want = normalizeLabel(label);
+  if (!want) return false;
   const quoted = JSON.stringify(label);
+
   const patterns = [
     `button.product-variation[aria-label=${quoted}]`,
     `button[class*="product-variation"][aria-label=${quoted}]`,
     `button[aria-label=${quoted}]`,
-    `button.product-variation:text-is(${quoted})`,
-    `button:text-is(${quoted})`,
+    `button.product-variation:has-text(${quoted})`,
+    `button[class*="product-variation"]:has-text(${quoted})`,
+    `button:has-text(${quoted})`,
+    `[role="button"]:has-text(${quoted})`,
   ];
+
   for (const sel of patterns) {
     const loc = page.locator(sel).first();
-    if (!(await loc.isVisible({ timeout: 150 }).catch(() => false))) continue;
-    const selected = await loc
-      .evaluate((el) => {
+    if (!(await loc.isVisible({ timeout: 200 }).catch(() => false))) continue;
+    const selected = await loc.evaluate(isSelectedVariation).catch(() => false);
+    if (selected) return true;
+    try {
+      await loc.click({ timeout: 800, force: true });
+      return true;
+    } catch {
+      try {
+        await loc.evaluate((el) => {
+          el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+          if (typeof el.click === "function") el.click();
+        });
+        return true;
+      } catch {
+        // try next
+      }
+    }
+  }
+
+  // DOM scan: match normalized innerText / aria-label on variation buttons.
+  const clicked = await page
+    .evaluate((wantNorm) => {
+      const norm = (s) =>
+        String(s || "")
+          .replace(/\u00a0/g, " ")
+          .replace(/[‐‑‒–—―]/g, "-")
+          .replace(/\s+/g, " ")
+          .trim()
+          .toLowerCase();
+      const isSelected = (el) => {
         const cls = String(el.className || "");
         return (
-          /selected|active/i.test(cls) ||
+          /selected|active|product-variation--selected/i.test(cls) ||
           el.getAttribute("aria-checked") === "true" ||
           el.getAttribute("aria-pressed") === "true" ||
-          Boolean(el.querySelector('[class*="tick"]'))
+          Boolean(el.querySelector('[class*="tick"], [class*="selected"]'))
         );
-      })
-      .catch(() => false);
-    if (selected) return true;
-    await loc.click({ timeout: 1000 });
-    return true;
-  }
-  return false;
+      };
+      const preferred = Array.from(
+        document.querySelectorAll(
+          'button.product-variation, button[class*="product-variation"], button[class*="variation"], [role="button"][class*="variation"], .product-variation'
+        )
+      );
+      const rest = Array.from(document.querySelectorAll("button, [role='button']")).filter(
+        (el) => !preferred.includes(el)
+      );
+      const nodes = [...preferred, ...rest];
+      let match = null;
+      for (const el of nodes) {
+        const text = norm(el.innerText || el.textContent || "");
+        const aria = norm(el.getAttribute("aria-label") || "");
+        if (text === wantNorm || aria === wantNorm || text.includes(wantNorm)) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width < 8 || rect.height < 8) continue;
+          // Skip huge page-level buttons (keep thumbnail variation chips).
+          if (rect.height > 220 || rect.width > 520) continue;
+          match = el;
+          break;
+        }
+      }
+      if (!match) return false;
+      if (isSelected(match)) return true;
+      match.scrollIntoView({ block: "center", inline: "nearest" });
+      match.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+      if (typeof match.click === "function") match.click();
+      return true;
+    }, want)
+    .catch(() => false);
+
+  return Boolean(clicked);
 }
 
 async function selectVariantLabels(page, labels, log) {
@@ -264,7 +344,7 @@ async function finishCheckout(page, config, log) {
     await selectPromptPayAndPlaceOrder(page, {
       placeOrder,
       log,
-      timeoutMs: Math.min(10_000, Number(config.clickTimeoutMs) || 8000),
+      timeoutMs: Math.max(12_000, Number(config.clickTimeoutMs) || 15000),
     });
     return;
   }
@@ -511,7 +591,9 @@ async function clickLanguageOption(page, selectors) {
 
 /**
  * Dismiss Shopee's first-visit language picker if present.
- * Prefer ไทย on .co.th. Never throws — login/buy flows must continue.
+ * Prefer ไทย on .co.th — never switch a .co.th session to English
+ * (English UI breaks Thai variation / สั่งสินค้า matching for many users).
+ * Never throws — login/buy flows must continue.
  */
 export async function dismissLanguageGate(page, { log } = {}) {
   const write = log || ((...a) => console.log(...a));
@@ -522,21 +604,24 @@ export async function dismissLanguageGate(page, { log } = {}) {
       return false;
     }
 
-    const gateVisible = await anyVisible(
-      page,
-      [...SELECTORS.languageThai, ...SELECTORS.languageEnglish],
-      1500
-    );
-    if (!gateVisible) return false;
+    const onThaiSite = /shopee\.co\.th/i.test(page.url());
+    const gateSelectors = onThaiSite
+      ? SELECTORS.languageThai
+      : [...SELECTORS.languageThai, ...SELECTORS.languageEnglish];
 
-    // Prefer Thai for shopee.co.th
+    const gateVisible = await anyVisible(page, gateSelectors, 1200);
+    if (!gateVisible) {
+      // On .co.th do not click English even if that button is visible.
+      return false;
+    }
+
     if (await clickLanguageOption(page, SELECTORS.languageThai)) {
       write("เลือกภาษา: ไทย");
       await page.waitForTimeout(300);
       return true;
     }
 
-    if (await clickLanguageOption(page, SELECTORS.languageEnglish)) {
+    if (!onThaiSite && (await clickLanguageOption(page, SELECTORS.languageEnglish))) {
       write("เลือกภาษา: English");
       await page.waitForTimeout(300);
       return true;
