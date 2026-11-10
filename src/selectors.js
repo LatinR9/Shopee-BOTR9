@@ -61,6 +61,10 @@ export const SELECTORS = {
     'button:has-text("Place Order")',
     'button:has-text("สั่งสินค้า")',
     'button:has-text("สั่งซื้อ")',
+    'button.shopee-button-solid--primary:has-text("Place Order")',
+    'button.shopee-button-solid--primary:has-text("สั่งสินค้า")',
+    'button.stardust-button--primary:has-text("Place Order")',
+    'button.stardust-button--primary:has-text("สั่งสินค้า")',
   ],
 
   // Cart page "check out" — only clicked while on /cart, because on the
