@@ -191,8 +191,8 @@ async function scanVariants() {
       setStatus("กำลังทำงานอยู่", "warn");
     } else {
       const why =
-        result?.reason === "traffic_block"
-          ? 'Shopee ขอยืนยันตัวตน — กด "เข้าสู่ระบบ" ก่อนแล้วสแกนใหม่'
+        result?.reason === "traffic_block" || result?.reason === "traffic_timeout"
+          ? "Shopee ขอ CAPTCHA/verify — ทำให้ผ่านในหน้าต่างเบราว์เซอร์แล้วสแกนใหม่"
           : result?.message || "สแกนไม่สำเร็จ — ลองใหม่ หรือพิมพ์ตัวเลือกเอง";
       appendLog({ level: "warn", message: why });
       setStatus("สแกนไม่สำเร็จ", "err");
@@ -364,6 +364,20 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btnStart").addEventListener("click", () => run("start"));
   $("btnStop").addEventListener("click", async () => {
     await window.shopeeBot.stopJob();
+  });
+  $("btnCloseBrowser").addEventListener("click", async () => {
+    appendLog({ level: "info", message: "กำลังปิดเบราว์เซอร์…" });
+    const result = await window.shopeeBot.closeBrowser();
+    if (result?.ok) {
+      appendLog({
+        level: "info",
+        message: result.closed
+          ? "ปิดเบราว์เซอร์แล้ว — เซสชันถูกบันทึกไว้ กดเข้าสู่ระบบ/สแกนเพื่อเปิดใหม่"
+          : "ไม่มีเบราว์เซอร์เปิดอยู่",
+      });
+    } else {
+      appendLog({ level: "warn", message: result?.message || "ปิดเบราว์เซอร์ไม่สำเร็จ" });
+    }
   });
   $("btnScan").addEventListener("click", scanVariants);
   $("productUrl").addEventListener("input", renderVariants);

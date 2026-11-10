@@ -307,7 +307,7 @@ async function readItemName(page) {
  * Several variants: put them all in the cart (before the sale if Shopee
  * allows, otherwise right when it opens), then one checkout from /cart.
  */
-async function runMultiVariant(page, config, { log, logger, signal }) {
+async function runMultiVariant(page, config, { log, logger, signal, skipReload = false }) {
   const variants = config.variantPlan;
   const itemName = config.itemName || (await readItemName(page));
   log(`ซื้อหลายตัวเลือก (${variants.length}): ${variants.map((v) => `${v.labels.join("/")}×${v.quantity}`).join(", ")}`);
@@ -337,7 +337,11 @@ async function runMultiVariant(page, config, { log, logger, signal }) {
   throwIfAborted(signal);
 
   if (pending.length) {
-    await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+    if (!skipReload) {
+      await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+    } else {
+      log("ถึงเวลาขาย — ใส่รถเข็นบนหน้าที่อุ่นไว้ (ไม่รีโหลด)");
+    }
     const perVariant = Math.max(3000, Math.floor(config.clickTimeoutMs / pending.length));
     let added = 0;
     for (const v of pending) {
@@ -526,35 +530,59 @@ export async function dismissLanguageGate(page, { log } = {}) {
   }
 }
 
+function isProductPage(url, productUrl) {
+  const u = String(url || "");
+  if (!(u.includes("/product/") || u.includes("-i."))) return false;
+  try {
+    const want = new URL(productUrl);
+    const have = new URL(u);
+    return have.hostname.includes("shopee") && have.pathname === want.pathname;
+  } catch {
+    return u.includes(String(productUrl).split("?")[0].split("/").pop() || "___");
+  }
+}
+
 /**
  * Main flash-sale purchase attempt.
- * Goes as far as the platform allows without storing secrets in code.
+ * Reuses a warm product page when possible (no full reload at sale time).
  */
 export async function runFlashSale(page, config, { logger, signal } = {}) {
   const log = makeLog(logger);
   throwIfAborted(signal);
 
-  log(`เปิดสินค้า: ${config.productUrl}`);
-  await page.goto(config.productUrl, { waitUntil: "domcontentloaded" });
+  // Lazy import to avoid circular init issues with shared-browser → bot.
+  const { waitOutTrafficBlock } = await import("./shared-browser.js");
+
+  const warm = isProductPage(page.url(), config.productUrl);
+  if (warm) {
+    log("ใช้หน้าสินค้าที่เปิดค้างไว้แล้ว (ไม่โหลดใหม่ทั้งหน้า)");
+  } else {
+    log(`เปิดสินค้า: ${config.productUrl}`);
+    await page.goto(config.productUrl, { waitUntil: "domcontentloaded" });
+  }
   await dismissLanguageGate(page, { log });
 
   if (!page.url().includes("/product/") && !page.url().includes("-i.")) {
     await page.goto(config.productUrl, { waitUntil: "domcontentloaded" });
   }
 
-  const blocked = await detectTrafficBlock(page);
-  if (blocked) {
-    const shot = await screenshot(page, "traffic-block");
-    log(`เจอหน้ากันบอทของ Shopee: ${blocked}`);
-    log(`สกรีนช็อต: ${shot}`);
-    log("แนะนำ: กดปุ่ม \"เข้าสู่ระบบ\" ให้ผ่าน CAPTCHA ก่อน แล้วลองใหม่");
-    return { ok: false, reason: "traffic_block", url: blocked };
+  const traffic = await waitOutTrafficBlock(page, {
+    onLog: (level, message) => (logger ? logger[level]?.(message) : log(message)),
+    timeoutMs: 10 * 60 * 1000,
+    signal,
+  });
+  if (!traffic.ok) {
+    return { ok: false, reason: "traffic_timeout", url: page.url() };
+  }
+  if (traffic.waited) {
+    await page.goto(config.productUrl, { waitUntil: "domcontentloaded" });
+    await dismissLanguageGate(page, { log }).catch(() => {});
   }
 
   const plan = config.variantPlan || [];
   if (plan.length > 1) {
     if (config.dryRun) log("โหมดทดสอบ — เปิดหน้าสินค้าอย่างเดียว ไม่กดซื้อ");
-    return runMultiVariant(page, config, { log, logger, signal });
+    return runMultiVariant(page, config, { log, logger, signal, skipReload: true });
   }
 
   const applyChoice =
@@ -581,7 +609,8 @@ export async function runFlashSale(page, config, { logger, signal } = {}) {
   await waitForSaleStart(config, { logger, signal });
   throwIfAborted(signal);
 
-  await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+  // Warm-page strategy: do NOT full-reload at sale time — just click.
+  log("ถึงเวลาขาย — กดซื้อทันทีบนหน้าที่อุ่นไว้ (ไม่รีโหลด)");
   await applyChoice();
 
   const bought = await spamBuyNow(page, config.clickTimeoutMs, { log, signal });

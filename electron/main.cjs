@@ -253,6 +253,31 @@ ipcMain.handle("job:start", async (_event, payload) => {
   }
 });
 
+ipcMain.handle("browser:close", async () => {
+  try {
+    const sharedUrl = pathToFileURL(
+      path.join(__dirname, "..", "src", "shared-browser.js")
+    ).href;
+    const { closeSharedBrowser } = await import(sharedUrl);
+    return await closeSharedBrowser((level, message) => sendLog(level, message));
+  } catch (err) {
+    sendLog("error", err?.message || String(err));
+    return { ok: false, message: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle("browser:info", async () => {
+  try {
+    const sharedUrl = pathToFileURL(
+      path.join(__dirname, "..", "src", "shared-browser.js")
+    ).href;
+    const { getSharedBrowserInfo } = await import(sharedUrl);
+    return getSharedBrowserInfo();
+  } catch {
+    return { open: false, profileDir: null };
+  }
+});
+
 ipcMain.handle("variants:scan", async (_event, payload) => {
   // Shares the job lock: scanning opens the same browser profile.
   if (jobRunning) {
@@ -319,6 +344,19 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on("before-quit", async () => {
+  // Persist + close the shared Shopee browser when the app exits.
+  try {
+    const sharedUrl = pathToFileURL(
+      path.join(__dirname, "..", "src", "shared-browser.js")
+    ).href;
+    const { closeSharedBrowser } = await import(sharedUrl);
+    await closeSharedBrowser(() => {});
+  } catch {
+    // ignore
+  }
 });
 
 app.on("window-all-closed", () => {
