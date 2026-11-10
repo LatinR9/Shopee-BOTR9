@@ -5,12 +5,6 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      create_release:
-        description: "Upload artifacts to a GitHub Release for this tag/ref"
-        required: false
-        default: "true"
-        type: string
 
 permissions:
   contents: write
@@ -32,35 +26,45 @@ jobs:
         run: npm ci
 
       - name: Ensure Playwright Chromium is bundled
+        shell: bash
         run: npm run prepare:browsers
         env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}\ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/ms-playwright
 
       - name: Build Windows installer + portable
+        shell: bash
         run: npx electron-builder --win --x64 --publish never
 
       - name: List release artifacts
         shell: bash
-        run: ls -lah release || dir release
+        run: ls -lah release
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-builds
-          path: |
-            release/*.exe
-            release/latest.yml
+          path: release/*.exe
           if-no-files-found: error
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+      - name: Publish GitHub Release (tag builds)
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('win-build-{0}', github.run_number) }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('Windows build #{0}', github.run_number) }}
-          draft: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          files: release/*.exe
           generate_release_notes: true
-          files: |
-            release/*.exe
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish draft GitHub Release (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: win-build-${{ github.run_number }}
+          name: Windows build #${{ github.run_number }}
+          draft: true
+          files: release/*.exe
+          generate_release_notes: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
