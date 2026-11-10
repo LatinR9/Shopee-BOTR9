@@ -1,0 +1,28 @@
+{
+  "name": "shopee-botr9",
+  "version": "1.0.0",
+  "description": "Shopee Flash Sale auto-click / checkout bot (Playwright)",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "bot": "node src/index.js",
+    "login": "node src/login.js",
+    "dry-run": "node src/index.js --dry-run",
+    "postinstall": "npx playwright install chromium"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "shopee",
+    "flash-sale",
+    "playwright",
+    "bot"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "playwright": "^1.50.1"
+  }
+}
