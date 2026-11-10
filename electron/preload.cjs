@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("shopeeBot", {
   checkForUpdates: () => ipcRenderer.invoke("update:check"),
   downloadUpdate: () => ipcRenderer.invoke("update:download"),
   installUpdate: () => ipcRenderer.invoke("update:install"),
+  scanVariants: (productUrl) => ipcRenderer.invoke("variants:scan", { productUrl }),
   onLog: (handler) => {
     const listener = (_event, entry) => handler(entry);
     ipcRenderer.on("job:log", listener);
