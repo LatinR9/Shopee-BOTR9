@@ -10,7 +10,8 @@ contextBridge.exposeInMainWorld("shopeeBot", {
   downloadUpdate: () => ipcRenderer.invoke("update:download"),
   installUpdate: () => ipcRenderer.invoke("update:install"),
   openReleasesPage: () => ipcRenderer.invoke("update:open-releases"),
-  scanVariants: (productUrl) => ipcRenderer.invoke("variants:scan", { productUrl }),
+  scanVariants: (productUrl, productId) =>
+    ipcRenderer.invoke("variants:scan", { productUrl, productId }),
   closeBrowser: () => ipcRenderer.invoke("browser:close"),
   getBrowserInfo: () => ipcRenderer.invoke("browser:info"),
   onLog: (handler) => {

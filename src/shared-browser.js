@@ -204,4 +204,95 @@ export function hasStrongSessionCookies(cookies) {
   return Boolean(findSessionCookie(cookies, STRONG_SESSION_COOKIES));
 }
 
+/**
+ * Open an additional OS window in the same persistent context (shared login).
+ * Uses CDP Target.createTarget({ newWindow: true }) so each product gets its
+ * own Chrome window, not a tab — required for simultaneous visible buys.
+ */
+export async function openProductWindow({
+  url = "about:blank",
+  onLog,
+  width = 1100,
+  height = 800,
+} = {}) {
+  const log = logFn(onLog);
+  const browser = await getSharedBrowser({ onLog });
+  const { context, page: seed } = browser;
+
+  let newPage = null;
+  const before = new Set(context.pages());
+  try {
+    const client = await context.newCDPSession(seed);
+    await client.send("Target.createTarget", {
+      url: "about:blank",
+      newWindow: true,
+      width,
+      height,
+    });
+    newPage = await Promise.race([
+      context.waitForEvent("page", { timeout: 5000 }),
+      (async () => {
+        await seed.waitForTimeout(400);
+        return context.pages().find((p) => !before.has(p) && !p.isClosed()) || null;
+      })(),
+    ]);
+    if (!newPage) {
+      newPage = context.pages().find((p) => !before.has(p) && !p.isClosed()) || null;
+    }
+  } catch (err) {
+    log("warn", `เปิดหน้าต่างใหม่ผ่าน CDP ไม่ได้ (${err.message}) — ใช้ window.open`);
+  }
+
+  if (!newPage) {
+    const popupPromise = context.waitForEvent("page");
+    await seed.evaluate(
+      ({ w, h }) => {
+        window.open("about:blank", "_blank", `popup=yes,width=${w},height=${h}`);
+      },
+      { w: width, h: height }
+    );
+    newPage = await popupPromise;
+  }
+
+  if (url && url !== "about:blank") {
+    await newPage.goto(url, { waitUntil: "domcontentloaded" }).catch(() => {});
+  }
+
+  log("info", `เปิดหน้าต่างสินค้าใหม่แล้ว (${newPage.url() || "blank"})`);
+  return { context, page: newPage, profileDir: browser.profileDir };
+}
+
+/** Tile product windows across the screen (best-effort via CDP). */
+export async function tileProductWindows(pages, { onLog } = {}) {
+  const log = logFn(onLog);
+  const list = (pages || []).filter((p) => p && !p.isClosed());
+  if (list.length === 0) return;
+
+  const cols = Math.ceil(Math.sqrt(list.length));
+  const rows = Math.ceil(list.length / cols);
+  const screenW = 1600;
+  const screenH = 900;
+  const w = Math.floor(screenW / cols);
+  const h = Math.floor(screenH / rows);
+
+  for (let i = 0; i < list.length; i++) {
+    const page = list[i];
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const left = col * w;
+    const top = row * h;
+    try {
+      const session = await page.context().newCDPSession(page);
+      const { windowId } = await session.send("Browser.getWindowForTarget");
+      await session.send("Browser.setWindowBounds", {
+        windowId,
+        bounds: { left, top, width: w, height: h, windowState: "normal" },
+      });
+    } catch {
+      // Window tiling is best-effort.
+    }
+  }
+  log("info", `จัดเรียง ${list.length} หน้าต่างสินค้าแล้ว`);
+}
+
 export { SESSION_COOKIE_NAMES, STRONG_SESSION_COOKIES, hasSavedSessionFile };

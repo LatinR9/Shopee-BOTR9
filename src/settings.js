@@ -11,10 +11,14 @@ const DEFAULTS = {
   selectedVariants: [],
   // Last scan result: { url, itemName, tiers, models, source, scannedAt }
   variantScan: null,
+  // Multi-product list: [{ id, productUrl, quantity, variants, selectedVariants, variantScan }]
+  products: [],
   preAddToCart: true,
   preclickMs: 500,
   clickTimeoutMs: 15000,
   autoPlaceOrder: false,
+  // Default ON: select QR พร้อมเพย์ + สั่งสินค้า after checkout (dry-run never places)
+  autoPromptPay: true,
   baseUrl: "https://shopee.co.th",
   username: "",
   password: "",
@@ -90,6 +94,8 @@ export function settingsToConfig(settings, overrides = {}) {
     headless: false,
     userDataDir: overrides.userDataDir,
     autoPlaceOrder: Boolean(settings.autoPlaceOrder),
+    // Default ON unless explicitly false
+    autoPromptPay: settings.autoPromptPay !== false,
     clickTimeoutMs: Number(settings.clickTimeoutMs) || 15000,
     baseUrl: String(settings.baseUrl || "https://shopee.co.th").replace(/\/$/, ""),
     dryRun: Boolean(overrides.dryRun),

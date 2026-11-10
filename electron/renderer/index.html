@@ -17,7 +17,7 @@
           <span class="brand-mark" aria-hidden="true">S</span>
           <div>
             <h1>Shopee Flash Sale Bot</h1>
-            <p class="tagline">กดซื้อ Flash Sale อัตโนมัติ — เปิดแล้วใช้ได้เลย</p>
+            <p class="tagline">หลายสินค้า · หน้าต่างละชิ้น · กดพร้อมกัน</p>
           </div>
         </div>
         <div id="statusPill" class="status idle">พร้อมใช้งาน</div>
@@ -25,52 +25,35 @@
 
       <main class="panel">
         <section class="form" aria-label="ตั้งค่า">
-          <label>
-            <span>ลิงก์สินค้า Shopee</span>
-            <input
-              id="productUrl"
-              type="url"
-              placeholder="https://shopee.co.th/..."
-              autocomplete="off"
-            />
-          </label>
-
           <div class="row">
             <label>
               <span>เวลาเริ่ม Flash Sale</span>
               <input id="saleStart" type="datetime-local" />
             </label>
             <label class="narrow">
-              <span>จำนวน (ต่อแบบ)</span>
+              <span>จำนวนเริ่มต้น</span>
               <input id="quantity" type="number" min="1" max="99" value="1" />
             </label>
           </div>
 
-          <section class="variants-box" aria-label="ตัวเลือกสินค้า">
-            <div class="variants-head">
+          <section class="products-box" aria-label="รายการสินค้า">
+            <div class="products-head">
               <div>
-                <h2>ตัวเลือกสินค้า</h2>
-                <p id="variantStatus" class="hint">วางลิงก์แล้วกด "สแกนตัวเลือก" เพื่อดูสี / ขนาด</p>
+                <h2>รายการสินค้า</h2>
+                <p class="hint">แต่ละลิงก์เปิด Chrome หน้าต่างแยก — ล็อกอินร่วมกัน กดซื้อพร้อมกัน</p>
               </div>
-              <button id="btnScan" class="btn secondary" type="button">สแกนตัวเลือก</button>
+              <button id="btnAddProduct" class="btn secondary" type="button">+ เพิ่มสินค้า</button>
             </div>
-
-            <div id="variantTools" class="variant-tools" hidden>
-              <input id="variantFilter" type="text" placeholder="ค้นหา เช่น ดำ หรือ XL" />
-              <button id="btnSelectAll" class="btn ghost tiny" type="button">เลือกทั้งหมด</button>
-              <button id="btnSelectNone" class="btn ghost tiny" type="button">ไม่เลือก</button>
-            </div>
-            <ul id="variantList" class="variant-list"></ul>
-            <p id="variantSummary" class="variant-summary" hidden></p>
-
-            <details class="manual">
-              <summary>พิมพ์ตัวเลือกเอง (ถ้าสแกนไม่ได้)</summary>
-              <label>
-                <span>ตัวเลือกสินค้า (คั่นด้วยจุลภาค เช่น สีดำ,XL) — ใช้เมื่อไม่ได้ติ๊กจากรายการ</span>
-                <input id="variants" type="text" placeholder="เว้นว่างได้ถ้าไม่มี" />
-              </label>
-            </details>
+            <div id="productList" class="product-list"></div>
           </section>
+
+          <label class="check promptpay-toggle">
+            <input id="autoPromptPay" type="checkbox" checked />
+            <span>
+              <strong>QR พร้อมเพย์อัตโนมัติ + สั่งสินค้า</strong>
+              <small>หลังถึงหน้าชำระเงิน เลือก “QR พร้อมเพย์” แล้วกดสั่งสินค้า — เปิดไว้หน้า QR ให้สแกนจ่าย (โหมดทดสอบจะไม่สั่ง)</small>
+            </span>
+          </label>
 
           <details class="advanced">
             <summary>ตั้งค่าเพิ่มเติม</summary>
@@ -86,11 +69,11 @@
             </div>
             <label class="check">
               <input id="autoPlaceOrder" type="checkbox" />
-              <span>กดสั่งซื้ออัตโนมัติ (ระวัง — เปิดเมื่อมั่นใจแล้วเท่านั้น)</span>
+              <span>กดสั่งซื้ออัตโนมัติ (เมื่อปิด QR พร้อมเพย์ด้านบน)</span>
             </label>
             <label class="check">
               <input id="preAddToCart" type="checkbox" checked />
-              <span>หลายตัวเลือก: ใส่รถเข็นล่วงหน้าก่อนเวลาขาย (เร็วที่สุด)</span>
+              <span>หลายตัวเลือกในสินค้าเดียว: ใส่รถเข็นล่วงหน้าก่อนเวลาขาย</span>
             </label>
             <div class="row">
               <label>

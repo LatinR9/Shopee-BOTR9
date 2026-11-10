@@ -1,5 +1,6 @@
 import { SELECTORS, clickFirst, anyVisible } from "./selectors.js";
 import { screenshot } from "./browser.js";
+import { selectPromptPayAndPlaceOrder } from "./payment.js";
 
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
@@ -248,16 +249,39 @@ async function syncCartSelection(page, itemName, variants) {
   return lastTicked;
 }
 
-async function placeOrderStep(page, autoPlaceOrder, log) {
-  if (autoPlaceOrder) {
+/**
+ * After checkout: optionally select PromptPay QR and/or place the order.
+ * Dry-run must pass placeOrder=false (caller enforces).
+ */
+async function finishCheckout(page, config, log) {
+  const dry = Boolean(config.dryRun);
+  const usePromptPay = !dry && config.autoPromptPay !== false;
+  // PromptPay toggle implies place order; otherwise honor autoPlaceOrder.
+  const placeOrder =
+    !dry && (usePromptPay || Boolean(config.autoPlaceOrder));
+
+  if (usePromptPay) {
+    await selectPromptPayAndPlaceOrder(page, {
+      placeOrder,
+      log,
+      timeoutMs: Math.min(10_000, Number(config.clickTimeoutMs) || 8000),
+    });
+    return;
+  }
+
+  if (placeOrder) {
     try {
-      await clickFirst(page, SELECTORS.placeOrder, { timeout: 8000 });
+      await clickFirst(page, SELECTORS.placeOrder, { timeout: 8000, force: true });
       log("กดสั่งซื้อแล้ว (เปิดยืนยันอัตโนมัติไว้)");
     } catch (err) {
       log(`ยังไม่ได้กดสั่งซื้อ: ${err.message}`);
     }
   } else {
-    log("หยุดก่อนกดสั่งซื้อ — กรุณายืนยันการชำระเงินเองในหน้าต่างเบราว์เซอร์");
+    log(
+      dry
+        ? "โหมดทดสอบ — ไม่กดสั่งสินค้า"
+        : "หยุดก่อนกดสั่งซื้อ — กรุณายืนยันการชำระเงินเองในหน้าต่างเบราว์เซอร์"
+    );
   }
 }
 
@@ -289,7 +313,7 @@ async function checkoutFromCart(page, config, variants, itemName, log) {
     return false;
   }
   await page.waitForLoadState("domcontentloaded").catch(() => {});
-  await placeOrderStep(page, config.autoPlaceOrder, log);
+  await finishCheckout(page, config, log);
   return true;
 }
 
@@ -307,7 +331,11 @@ async function readItemName(page) {
  * Several variants: put them all in the cart (before the sale if Shopee
  * allows, otherwise right when it opens), then one checkout from /cart.
  */
-async function runMultiVariant(page, config, { log, logger, signal, skipReload = false }) {
+async function runMultiVariant(
+  page,
+  config,
+  { log, logger, signal, skipReload = false, skipSaleWait = false } = {}
+) {
   const variants = config.variantPlan;
   const itemName = config.itemName || (await readItemName(page));
   log(`ซื้อหลายตัวเลือก (${variants.length}): ${variants.map((v) => `${v.labels.join("/")}×${v.quantity}`).join(", ")}`);
@@ -333,7 +361,9 @@ async function runMultiVariant(page, config, { log, logger, signal, skipReload =
     pending.push(...variants);
   }
 
-  await waitForSaleStart(config, { logger, signal });
+  if (!skipSaleWait) {
+    await waitForSaleStart(config, { logger, signal });
+  }
   throwIfAborted(signal);
 
   if (pending.length) {
@@ -408,7 +438,7 @@ async function spamBuyNow(page, timeoutMs, { log, signal }) {
   return false;
 }
 
-async function tryCheckout(page, autoPlaceOrder, log) {
+async function tryCheckout(page, config, log) {
   const onCheckout =
     page.url().includes("/checkout") ||
     (await anyVisible(page, SELECTORS.checkout, 4000));
@@ -425,17 +455,7 @@ async function tryCheckout(page, autoPlaceOrder, log) {
   }
 
   await page.waitForLoadState("domcontentloaded").catch(() => {});
-
-  if (autoPlaceOrder) {
-    try {
-      await clickFirst(page, SELECTORS.placeOrder, { timeout: 8000 });
-      log("กดสั่งซื้อแล้ว (เปิดยืนยันอัตโนมัติไว้)");
-    } catch (err) {
-      log(`ยังไม่ได้กดสั่งซื้อ: ${err.message}`);
-    }
-  } else {
-    log("หยุดก่อนกดสั่งซื้อ — กรุณายืนยันการชำระเงินเองในหน้าต่างเบราว์เซอร์");
-  }
+  await finishCheckout(page, config, log);
 }
 
 /** Detect Shopee anti-bot / traffic verify interstitial. */
@@ -546,7 +566,11 @@ function isProductPage(url, productUrl) {
  * Main flash-sale purchase attempt.
  * Reuses a warm product page when possible (no full reload at sale time).
  */
-export async function runFlashSale(page, config, { logger, signal } = {}) {
+export async function runFlashSale(
+  page,
+  config,
+  { logger, signal, skipSaleWait = false } = {}
+) {
   const log = makeLog(logger);
   throwIfAborted(signal);
 
@@ -582,7 +606,13 @@ export async function runFlashSale(page, config, { logger, signal } = {}) {
   const plan = config.variantPlan || [];
   if (plan.length > 1) {
     if (config.dryRun) log("โหมดทดสอบ — เปิดหน้าสินค้าอย่างเดียว ไม่กดซื้อ");
-    return runMultiVariant(page, config, { log, logger, signal, skipReload: true });
+    return runMultiVariant(page, config, {
+      log,
+      logger,
+      signal,
+      skipReload: true,
+      skipSaleWait,
+    });
   }
 
   const applyChoice =
@@ -597,7 +627,7 @@ export async function runFlashSale(page, config, { logger, signal } = {}) {
         };
 
   if (config.dryRun) {
-    log("โหมดทดสอบ — เปิดหน้าสินค้าอย่างเดียว ไม่กดซื้อ");
+    log("โหมดทดสอบ — เปิดหน้าสินค้าอย่างเดียว ไม่กดซื้อ / ไม่สั่งสินค้า");
     await applyChoice();
     const shot = await screenshot(page, "dry-run");
     log(`สกรีนช็อต: ${shot}`);
@@ -606,7 +636,9 @@ export async function runFlashSale(page, config, { logger, signal } = {}) {
 
   await applyChoice();
 
-  await waitForSaleStart(config, { logger, signal });
+  if (!skipSaleWait) {
+    await waitForSaleStart(config, { logger, signal });
+  }
   throwIfAborted(signal);
 
   // Warm-page strategy: do NOT full-reload at sale time — just click.
@@ -621,7 +653,7 @@ export async function runFlashSale(page, config, { logger, signal } = {}) {
     return { ok: false, reason: "buy_now_timeout" };
   }
 
-  await tryCheckout(page, config.autoPlaceOrder, log);
+  await tryCheckout(page, config, log);
   const finalShot = await screenshot(page, "checkout");
   log(`สกรีนช็อตสุดท้าย: ${finalShot}`);
 
